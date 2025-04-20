@@ -4,6 +4,7 @@ use db_entities::{
     function::{ActiveModel as FunctionModel, Column, Model},
     prelude::Auth as AuthEntity,
 };
+use db_migrations::Condition;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, DbConn, EntityTrait, QueryFilter};
 use uuid::Uuid;
 
@@ -20,9 +21,17 @@ impl FunctionDBRepo {
     /// # Returns
     ///
     /// * `Some(Model)` if the function exists; otherwise, `None`.
-    pub async fn find_function_by_name(conn: &DbConn, name: &str) -> Option<Model> {
+    pub async fn find_function_by_name(
+        conn: &DbConn,
+        name: &str,
+        user_uuid: Uuid,
+    ) -> Option<Model> {
         Function::find()
-            .filter(Column::Name.eq(name))
+            .filter(
+                Condition::all()
+                    .add(Column::Name.eq(name))
+                    .add(Column::Uuid.eq(user_uuid)),
+            )
             .one(conn)
             .await
             .ok()?
@@ -89,7 +98,7 @@ impl FunctionDBRepo {
             auth_id: Set(user.id),
             name: Set(function.name),
             runtime: Set(function.runtime),
-            uuid: Set(Uuid::new_v4()),
+            uuid: Set(user_uuid),
             ..Default::default()
         };
 

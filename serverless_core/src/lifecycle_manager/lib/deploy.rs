@@ -142,10 +142,11 @@ pub async fn deploy_function(
         ServelessCoreError::BadFunction("Missing environment configuration in function".to_string())
     })?;
     // Build the function Docker image.
-    provision_docker(path, &name, envs).await?;
+    let function_image_name = format!("{name}-{user_uuid}");
+    provision_docker(path, &function_image_name, envs).await?;
 
     // Register the function in the database if it's not already registered.
-    if FunctionDBRepo::find_function_by_name(conn, &name)
+    if FunctionDBRepo::find_function_by_name(conn, &name, user_uuid)
         .await
         .is_none()
     {

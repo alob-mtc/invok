@@ -96,7 +96,10 @@ pub async fn start_server() -> Result<(), ServerError> {
         .route("/functions", get(list_functions))
         .route("/functions/upload", post(upload_function))
         // Function invocation routes
-        .route("/service/:function_name", any(call_function))
+        .route(
+            "/functions/:name_space/invok/:function_name",
+            any(call_function),
+        )
         .with_state(app_state);
 
     // Build socket address from configuration
