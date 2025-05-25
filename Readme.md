@@ -2,7 +2,7 @@
 
 A modern, lightweight, and self-hosted serverless framework that lets you deploy and run functions without managing servers. **This is a proof of concept and not production-ready.**
 
-Try it now in your browser: [Invok Online Playground](https://freeserverless.com/invok/9447cdf0-d29a-4b0f-a6dc-4455b8291a6a/invok-ide)
+Try it now in your browser: [Invok Online Playground](https://freeserverless.com/invok/c77a4aef-d1b8-4106-b582-27d69afbbf52/invok-ide)
 
 ![Serverless Architecture](./assets/serverless.png "Architecture")
 
@@ -42,7 +42,7 @@ This project is currently in **proof of concept** stage. While it demonstrates t
 ### Online Playground (No Installation Required)
 
 The fastest way to get started is to use our web-based playground:
-[Invok Online Playground](https://freeserverless.com/invok/9447cdf0-d29a-4b0f-a6dc-4455b8291a6a/invok-ide)
+[Invok Online Playground](https://freeserverless.com/invok/c77a4aef-d1b8-4106-b582-27d69afbbf52/invok-ide)
 
 This allows you to create, deploy, and test serverless functions directly in your browser without any setup.
 
@@ -230,12 +230,12 @@ This project is licensed under the [LICENSE](LICENSE) file in the repository.
 
 [Watch Quick Demo](https://youtu.be/qLKV_cO_XhQ?si=4lmvu8frlzH1yLNX)
 
-A demo function running on a self-hosted enviroment here [invoke-demo-home-page](https://freeserverless.com/invok/9447cdf0-d29a-4b0f-a6dc-4455b8291a6a/home-page), function code [here](https://github.com/alob-mtc/invok-functions)
+A demo function running on a self-hosted enviroment here [invoke-demo-home-page](https://freeserverless.com/invok/c77a4aef-d1b8-4106-b582-27d69afbbf52/home-page), function code [here](https://github.com/alob-mtc/invok-functions)
 
 ### Interactive Playground
 
 Try out the serverless framework without installing anything using our web-based playground:
-[Invok Playground](https://freeserverless.com/invok/9447cdf0-d29a-4b0f-a6dc-4455b8291a6a/invok-ide)
+[Invok Playground](https://freeserverless.com/invok/c77a4aef-d1b8-4106-b582-27d69afbbf52/invok-ide)
 
 The playground allows you to:
 
