@@ -1,6 +1,6 @@
 # Invok Autoscaling Feature
 
-This document describes the new resource-aware autoscaling feature for Invok, which automatically manages container pools based on resource usage.
+This document describes the resource-aware autoscaling feature for Invok, which automatically manages container pools based on resource usage.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The autoscaling feature extends Invok to:
 - **ContainerManager**: Monitors individual container resource usage (CPU, memory)
 - **ContainerPool**: Manages a pool of containers for a specific function
 - **Autoscaler**: Coordinates multiple container pools and makes scaling decisions
-- **AutoscalingRuntime**: High-level interface that integrates with the existing Invok runtime
+- **AutoscalingRuntimeBuilder**: High-level interface for configuring and building runtime
 
 ### Resource Monitoring
 
@@ -60,82 +60,7 @@ let runtime = AutoscalingRuntimeBuilder::new()
     .max_containers_per_function(20)        // Scale up to 20 containers max
     .cooldown_duration(Duration::from_secs(60)) // 60 second cooldown
     .poll_interval(Duration::from_secs(1))   // Monitor every second
-    .build(docker, "invok-network".to_string());
-```
-
-## Usage Examples
-
-### Basic Usage
-
-```rust
-use runtime::core::integration::AutoscalingRuntime;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create autoscaling runtime with defaults
-    let runtime = AutoscalingRuntime::new("invok-network".to_string()).await?;
-    
-    // Start the autoscaler background tasks
-    runtime.start().await?;
-    
-    // Register a container for a function
-    runtime.register_container(
-        "my-function",
-        "container-123".to_string(),
-        "my-function-container-1".to_string(),
-    ).await?;
-    
-    // Execute function (will use best available container)
-    if let Some(container_id) = runtime.execute_function("my-function").await? {
-        println!("Function executed on container: {}", container_id);
-    }
-    
-    // Get status of all pools
-    let status = runtime.get_status();
-    println!("Runtime status: {}", serde_json::to_string_pretty(&status)?);
-    
-    Ok(())
-}
-```
-
-### Integration with Existing Invok Code
-
-```rust
-use runtime::core::integration::AutoscalingRuntime;
-use runtime::core::runner::{runner, ContainerDetails};
-
-async fn enhanced_function_execution(
-    runtime: &AutoscalingRuntime,
-    function_name: &str,
-    image_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Try to get an existing healthy container
-    if let Some(container_id) = runtime.execute_function(function_name).await? {
-        println!("Using existing container: {}", container_id);
-        return Ok(());
-    }
-    
-    // If no containers available, create a new one
-    let container_details = ContainerDetails {
-        container_port: 8080,
-        bind_port: "8080".to_string(),
-        container_name: format!("{}-{}", function_name, uuid::Uuid::new_v4()),
-        timeout: 300,
-        docker_compose_network_host: "invok-network".to_string(),
-    };
-    
-    // Start the container using existing runner
-    runner(image_name, container_details.clone()).await?;
-    
-    // Register it with the autoscaler
-    runtime.register_container(
-        function_name,
-        container_details.container_name.clone(),
-        container_details.container_name,
-    ).await?;
-    
-    Ok(())
-}
+    .build("invok-network".to_string());
 ```
 
 ## Scaling Behavior
@@ -159,43 +84,6 @@ New requests are routed to:
 2. **Overloaded container** (as last resort if no healthy containers available)
 3. **New container** (spawned immediately if at capacity)
 
-## Monitoring and Debugging
-
-### Status Endpoint
-
-```rust
-let status = runtime.get_status();
-println!("{}", serde_json::to_string_pretty(&status)?);
-```
-
-Example output:
-```json
-{
-  "pools": {
-    "my-function": {
-      "function_name": "my-function",
-      "container_count": 3,
-      "healthy_containers": 2,
-      "overloaded_containers": 1,
-      "idle_containers": 0
-    }
-  },
-  "runtime": "autoscaling"
-}
-```
-
-### Logs
-
-The autoscaler produces structured logs for monitoring:
-
-```
-INFO - Starting autoscaler with config: AutoscalerConfig { ... }
-INFO - Created new container pool for function: my-function
-INFO - Container my-function-container-1 status changed from Healthy to Overloaded
-INFO - Scaling up function: my-function
-INFO - Successfully scaled up function my-function with container my-function-container-2
-INFO - Scaled down container my-function-container-3 for function my-function
-```
 
 ## Performance Considerations
 
@@ -238,87 +126,3 @@ INFO - Scaled down container my-function-container-3 for function my-function
    - Frequent scaling events
    - Max container limit reached
    - All containers overloaded
-
-### Resource Management
-
-1. **Set Docker resource limits**:
-   ```rust
-   // In container configuration
-   memory: Some(512 * 1024 * 1024), // 512 MB limit
-   cpu_quota: Some(50000),           // 0.5 CPU limit
-   ```
-
-2. **Monitor host resources**:
-   - Ensure sufficient CPU/memory for scaling
-   - Monitor Docker daemon performance
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Containers not scaling up**:
-   - Check if max_containers_per_function reached
-   - Verify Docker daemon connectivity
-   - Check resource thresholds
-
-2. **Containers not scaling down**:
-   - Verify cooldown_duration setting
-   - Check if min_containers_per_function reached
-   - Monitor container idle detection
-
-3. **High resource usage**:
-   - Increase polling interval
-   - Reduce number of monitored containers
-   - Optimize container resource limits
-
-### Debug Commands
-
-```rust
-// Get detailed autoscaler status
-let autoscaler = runtime.autoscaler();
-let pools = autoscaler.get_all_pool_status();
-
-// Check specific function pool
-let pool = autoscaler.get_or_create_pool("my-function").await;
-let container_count = pool.container_count();
-let candidates = pool.get_scaledown_candidates();
-```
-
-## Migration Guide
-
-### From Static Timeout to Autoscaling
-
-1. **Update configuration**:
-   ```rust
-   // Old: Fixed timeout
-   let timeout = Duration::from_secs(12);
-   
-   // New: Autoscaling configuration
-   let runtime = AutoscalingRuntimeBuilder::new()
-       .cpu_overload_threshold(0.70)
-       .build(docker, network_host);
-   ```
-
-2. **Update function execution**:
-   ```rust
-   // Old: Direct runner call
-   runner(image_name, container_details).await?;
-   
-   // New: Autoscaling-aware execution
-   runtime.execute_function(function_name).await?;
-   ```
-
-3. **Update monitoring**:
-   ```rust
-   // Old: Manual container tracking
-   // New: Built-in pool status
-   let status = runtime.get_status();
-   ```
-
-## Future Enhancements
-
-- **Predictive scaling** based on request patterns
-- **Custom metrics** support (beyond CPU/memory)
-- **Multi-region** container distribution
-- **Cost optimization** algorithms
-- **Integration** with Kubernetes HPA
