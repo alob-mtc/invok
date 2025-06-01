@@ -28,10 +28,11 @@ services:
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/serverless"
       REDIS_URL: "redis://redis:6379"
       AUTH_JWT_SECRET: "your-secret-key-here"
-      RUST_LOG: "debug"
+      RUST_LOG: "info"
       DOCKER_HOST: "socat:2375"
       # It is important to set this correctly, you can find the correct value by running `docker network ls` and it should be <>_infra_network
-      DOCKER_COMPOSE_NETWORK: "serverless-framework_infra_network"
+      DOCKER_COMPOSE_NETWORK: "serverless_infra_network"
+      MIN_CONTAINERS_PER_FUNCTION: "1"
 
   postgres:
     image: postgres:15

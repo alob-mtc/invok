@@ -1,7 +1,7 @@
 use crate::shared::error::{AppResult, RuntimeError};
 use bollard::container::{
     AttachContainerOptions, AttachContainerResults, Config, CreateContainerOptions,
-    NetworkingConfig, RemoveContainerOptions,
+    RemoveContainerOptions,
 };
 use bollard::models::{HostConfig, PortBinding, PortMap};
 use bollard::network::ConnectNetworkOptions;
@@ -17,6 +17,7 @@ const SIZE_256_MB: i64 = 256 * BYTES_IN_MB; // 256 MB in bytes
 const NUM_CPUS: f64 = 1.0;
 #[derive(Debug, Clone)]
 pub struct ContainerDetails {
+    pub container_id: String,
     pub container_port: u32,
     pub bind_port: String,
     pub container_name: String,
@@ -40,10 +41,16 @@ pub struct ContainerDetails {
 /// * On success, returns the container ID as a `String`.
 /// * On error, returns an `AppError`.
 ///
-pub async fn runner(image_name: &str, container_details: ContainerDetails) -> AppResult<()> {
+pub async fn runner(
+    docker: Option<Docker>,
+    image_name: &str,
+    container_details: ContainerDetails,
+) -> AppResult<String> {
     // Connect to Docker via Unix socket (or named pipe on Windows).
-    let docker = Docker::connect_with_http_defaults()
-        .map_err(|e| RuntimeError::System(format!("Failed to connect to Docker: {e}")))?;
+    let docker = docker.unwrap_or(
+        Docker::connect_with_http_defaults()
+            .map_err(|e| RuntimeError::System(format!("Failed to connect to Docker: {e}")))?,
+    );
 
     let start_time = Instant::now();
 
@@ -139,29 +146,31 @@ pub async fn runner(image_name: &str, container_details: ContainerDetails) -> Ap
         }
     });
 
-    // Spawn a separate task to handle timeout/cleanup.
-    let docker_clone = docker.clone();
-    let container_id_clone = container_id.clone();
-    spawn(async move {
-        let timeout_val = Duration::from_secs(container_details.timeout);
+    if container_details.timeout > 0 {
+        // Spawn a separate task to handle timeout/cleanup.
+        let docker_clone = docker.clone();
+        let container_id_clone = container_id.clone();
+        spawn(async move {
+            let timeout_val = Duration::from_secs(container_details.timeout);
 
-        // Create a channel-based timeout; trigger_timeout() starts the countdown.
-        let (rx, trigger_timeout) = crate::shared::utils::timeout(timeout_val);
-        trigger_timeout();
+            // Create a channel-based timeout; trigger_timeout() starts the countdown.
+            let (rx, trigger_timeout) = crate::shared::utils::timeout(timeout_val);
+            trigger_timeout();
 
-        match monitor_container_process(&docker_clone, &container_id_clone, rx).await {
-            Ok(_) => {
-                let elapsed_time = start_time.elapsed();
-                println!(
-                    "Execution took {:.2} seconds.",
-                    elapsed_time.as_millis() as f64 / 1000.0
-                );
+            match monitor_container_process(&docker_clone, &container_id_clone, rx).await {
+                Ok(_) => {
+                    let elapsed_time = start_time.elapsed();
+                    println!(
+                        "Execution took {:.2} seconds.",
+                        elapsed_time.as_millis() as f64 / 1000.0
+                    );
+                }
+                Err(e) => eprintln!("Failed to monitor child process: {e}"),
             }
-            Err(e) => eprintln!("Failed to monitor child process: {e}"),
-        }
-    });
+        });
+    }
 
-    Ok(())
+    Ok(container_id)
 }
 
 /// Monitors the container process using a timeout channel.
@@ -181,7 +190,7 @@ async fn monitor_container_process(
     loop {
         match timeout_rx.try_recv() {
             Ok(_) => {
-                clean_up_v2(docker, container_id).await?;
+                clean_up(docker, container_id).await?;
                 return Ok(());
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -196,7 +205,7 @@ async fn monitor_container_process(
 ///
 /// * `docker` - Reference to the Docker client.
 /// * `container_id` - ID of the container to remove.
-async fn clean_up_v2(docker: &Docker, container_id: &str) -> AppResult<()> {
+pub async fn clean_up(docker: &Docker, container_id: &str) -> AppResult<()> {
     docker
         .remove_container(
             container_id,
@@ -257,8 +266,10 @@ mod tests {
 async fn test_runner() {
     // Make sure the "hello-world" image is available locally or can be pulled.
     let result = runner(
+        None,
         "test-runner",
         ContainerDetails {
+            container_id: "".to_string(),
             container_port: 8080,
             bind_port: 8080.to_string(),
             container_name: "c-test".to_string(),

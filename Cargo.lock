@@ -2649,10 +2649,13 @@ version = "0.1.0"
 dependencies = [
  "bollard",
  "futures-util",
+ "rand",
+ "serde_json",
  "shared_utils",
  "tar",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

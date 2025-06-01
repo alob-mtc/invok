@@ -12,3 +12,6 @@ futures-util = "0.3.31"
 tempfile = "3.15.0"
 tar = "0.4.43"
 shared_utils = { path = "../shared_utils" }
+tracing = "0.1"
+serde_json = "1.0"
+rand = "0.8"

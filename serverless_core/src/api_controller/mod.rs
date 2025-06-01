@@ -14,8 +14,12 @@ use handlers::{
     functions::{call_function, list_functions, upload_function},
 };
 use redis::aio::MultiplexedConnection;
+use runtime::core::autoscaler::Autoscaler;
+use runtime::core::integration::AutoscalingRuntimeBuilder;
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 use tracing::{error, info};
 
@@ -28,6 +32,8 @@ pub struct AppState {
     pub cache_conn: MultiplexedConnection,
     /// Application configuration
     pub config: InvokConfig,
+    // TODO: added autoscaler runtime
+    pub autoscaler: Arc<Autoscaler>,
 }
 
 /// Custom error type for server initialization.
@@ -74,10 +80,38 @@ pub async fn start_server() -> Result<(), InvokAppError> {
     // Run database migrations.
     Migrator::up(&db_conn, None).await?;
 
+    // Configure autoscaling runtime
+    let runtime = AutoscalingRuntimeBuilder::new()
+        .cpu_overload_threshold(config.function_config.autoscaling.cpu_overload_threshold)
+        .memory_overload_threshold(config.function_config.autoscaling.memory_overload_threshold)
+        .min_containers_per_function(
+            config
+                .function_config
+                .autoscaling
+                .min_containers_per_function,
+        )
+        .max_containers_per_function(
+            config
+                .function_config
+                .autoscaling
+                .max_containers_per_function,
+        )
+        .cooldown_duration(Duration::from_secs(
+            config.function_config.autoscaling.cooldown_duration_secs,
+        ))
+        .poll_interval(Duration::from_secs(
+            config.function_config.autoscaling.poll_interval_secs,
+        ))
+        .build(config.server_config.docker_compose_network_host.to_string());
+
+    // Start runtime
+    runtime.start().await.unwrap();
+
     let app_state = AppState {
         db_conn,
         cache_conn,
         config: config.clone(),
+        autoscaler: Arc::new(runtime),
     };
 
     // Create a router with all our routes
