@@ -49,7 +49,7 @@ POLL_INTERVAL_SECS=2                 # Resource monitoring interval
 ### Programmatic Configuration
 
 ```rust
-use runtime::core::integration::{AutoscalingRuntime, AutoscalingRuntimeBuilder};
+use runtime::core::integration::AutoscalingRuntimeBuilder;
 use std::time::Duration;
 
 // Using builder pattern for custom configuration

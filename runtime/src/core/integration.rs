@@ -6,20 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
 
-/// Enhanced runtime that integrates autoscaling capabilities
-pub struct AutoscalingRuntime {}
-
-impl AutoscalingRuntime {
-    /// Create a new autoscaling runtime with custom configuration
-    pub fn new_with_config(
-        docker: Docker,
-        config: AutoscalerConfig,
-        docker_compose_network_host: String,
-    ) -> Autoscaler {
-        Autoscaler::new(docker, config, docker_compose_network_host)
-    }
-}
-
 /// Configuration builder for the autoscaling runtime
 pub struct AutoscalingRuntimeBuilder {
     cpu_overload_threshold: f64,
@@ -107,7 +93,7 @@ impl AutoscalingRuntimeBuilder {
         };
 
         let docker = Docker::connect_with_http_defaults().unwrap();
-        AutoscalingRuntime::new_with_config(docker, config, docker_compose_network_host)
+        Autoscaler::new(docker, config, docker_compose_network_host)
     }
 }
 
