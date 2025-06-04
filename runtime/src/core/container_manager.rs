@@ -1,6 +1,5 @@
 use crate::core::runner::{clean_up, runner, ContainerDetails};
 use crate::shared::error::{AppResult, RuntimeError};
-use crate::shared::utils::{random_container_name, random_port};
 use bollard::container::{RemoveContainerOptions, StatsOptions};
 use bollard::Docker;
 use futures_util::StreamExt;
@@ -10,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+use crate::shared::utils::{random_container_name, random_port};
 
 /// Container status enumeration
 #[derive(Debug, Clone, PartialEq)]
@@ -30,7 +30,7 @@ pub struct ContainerInfo {
     /// Container name
     pub name: String,
     /// Container port
-    pub bind_port: String,
+    pub container_port: u32,
     /// Current CPU usage (0.0-1.0)
     pub cpu_usage: f64,
     /// Current memory usage in bytes
@@ -44,11 +44,11 @@ pub struct ContainerInfo {
 }
 
 impl ContainerInfo {
-    pub fn new(id: String, name: String, bind_port: String) -> Self {
+    pub fn new(id: String, name: String, container_port: u32) -> Self {
         Self {
             id,
             name,
-            bind_port,
+            container_port,
             cpu_usage: 0.0,
             memory_usage: 0,
             status: ContainerStatus::Healthy,
@@ -183,7 +183,7 @@ impl ContainerPool {
         let container_info = ContainerInfo::new(
             container_id.clone(),
             container_details.container_name.clone(),
-            container_details.bind_port.clone(),
+            container_details.container_port.clone(),
         );
 
         {
@@ -219,7 +219,8 @@ impl ContainerPool {
         // Filter healthy containers and sort by CPU usage
         let mut healthy_containers: Vec<&ContainerInfo> = containers
             .iter()
-            .filter(|c| c.status == ContainerStatus::Healthy)
+            // TODO: pick idle within safe window or lock the container to it doesn't get cleaned up
+            .filter(|c| c.status == ContainerStatus::Healthy || c.status == ContainerStatus::Idle)
             .collect();
 
         if healthy_containers.is_empty() {
@@ -494,8 +495,8 @@ async fn monitor_container_resources(
 fn toContainerDetails(container_info: &ContainerInfo) -> ContainerDetails {
     ContainerDetails {
         container_id: container_info.id.clone(),
-        container_port: 0,
-        bind_port: container_info.bind_port.clone(),
+        container_port: container_info.container_port,
+        bind_port: "".to_string(),
         container_name: container_info.name.clone(),
         timeout: 0,
         docker_compose_network_host: "".to_string(),
@@ -511,7 +512,7 @@ mod tests {
         let mut container = ContainerInfo::new(
             "test-id".to_string(),
             "test-name".to_string(),
-            "".to_string(),
+            0,
         );
 
         // Test overload detection
@@ -533,7 +534,7 @@ mod tests {
         let mut container = ContainerInfo::new(
             "test-id".to_string(),
             "test-name".to_string(),
-            "".to_string(),
+            0,
         );
 
         // Make container idle

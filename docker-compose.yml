@@ -33,6 +33,8 @@ services:
       # It is important to set this correctly, you can find the correct value by running `docker network ls` and it should be <>_infra_network
       DOCKER_COMPOSE_NETWORK: "serverless_infra_network"
       MIN_CONTAINERS_PER_FUNCTION: "1"
+      CPU_OVERLOAD_THRESHOLD: "0.04"
+      COOLDOWN_CPU_THRESHOLD: "0.01"
 
   postgres:
     image: postgres:15
