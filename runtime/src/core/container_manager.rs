@@ -1,5 +1,7 @@
+use crate::core::metrics_client::{MetricsClient, MetricsConfig};
 use crate::core::runner::{clean_up, runner, ContainerDetails};
 use crate::shared::error::{AppResult, RuntimeError};
+use crate::shared::utils::{random_container_name, random_port};
 use bollard::container::{RemoveContainerOptions, StatsOptions};
 use bollard::Docker;
 use futures_util::StreamExt;
@@ -9,7 +11,6 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
-use crate::shared::utils::{random_container_name, random_port};
 
 /// Container status enumeration
 #[derive(Debug, Clone, PartialEq)]
@@ -31,10 +32,10 @@ pub struct ContainerInfo {
     pub name: String,
     /// Container port
     pub container_port: u32,
-    /// Current CPU usage (0.0-1.0)
+    /// Current CPU usage percentage (0.0-100.0)
     pub cpu_usage: f64,
-    /// Current memory usage in bytes
-    pub memory_usage: u64,
+    /// Current memory usage percentage (0.0-100.0)
+    pub memory_usage: f64,
     /// Container status
     pub status: ContainerStatus,
     /// Last time this container handled a request
@@ -50,7 +51,7 @@ impl ContainerInfo {
             name,
             container_port,
             cpu_usage: 0.0,
-            memory_usage: 0,
+            memory_usage: 0.0,
             status: ContainerStatus::Healthy,
             last_active: Instant::now(),
             idle_since: None,
@@ -61,9 +62,9 @@ impl ContainerInfo {
     pub fn update_metrics(
         &mut self,
         cpu_usage: f64,
-        memory_usage: u64,
+        memory_usage: f64,
         cpu_threshold: f64,
-        memory_threshold: u64,
+        memory_threshold: f64,
         cooldown_threshold: f64,
     ) {
         self.cpu_usage = cpu_usage;
@@ -116,10 +117,24 @@ impl ContainerInfo {
 #[derive(Debug, Clone)]
 pub struct MonitoringConfig {
     pub cpu_overload_threshold: f64,
-    pub memory_overload_threshold: u64,
+    pub memory_overload_threshold: f64,
     pub cooldown_cpu_threshold: f64,
     pub cooldown_duration: Duration,
     pub poll_interval: Duration,
+    pub prometheus_url: String,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            cpu_overload_threshold: 70.0,
+            memory_overload_threshold: 70.0,
+            cooldown_cpu_threshold: 10.0,
+            cooldown_duration: Duration::from_secs(30),
+            poll_interval: Duration::from_secs(2),
+            prometheus_url: "http://prometheus:9090".to_string(),
+        }
+    }
 }
 
 /// Container pool manager for a specific function
@@ -138,6 +153,8 @@ pub struct ContainerPool {
     min_containers: usize,
     /// Maximum containers allowed
     max_containers: usize,
+    /// Optional metrics client for Prometheus
+    metrics_client: Arc<MetricsClient>,
 }
 
 impl ContainerPool {
@@ -148,6 +165,7 @@ impl ContainerPool {
         config: MonitoringConfig,
         min_containers: usize,
         max_containers: usize,
+        metrics_client: Arc<MetricsClient>,
     ) -> Self {
         Self {
             function_name,
@@ -157,6 +175,7 @@ impl ContainerPool {
             config,
             min_containers,
             max_containers,
+            metrics_client,
         }
     }
 
@@ -168,7 +187,7 @@ impl ContainerPool {
             container_port: 8080,
             bind_port: random_port(),
             container_name: random_container_name(),
-            timeout: 300,
+            timeout: 0,
             docker_compose_network_host: self.network_host.to_string(),
         };
 
@@ -197,13 +216,13 @@ impl ContainerPool {
         );
 
         // Start monitoring this container
-        let docker = self.docker.clone();
         let config = self.config.clone();
         let containers = self.containers.clone();
+        let metrics_client = self.metrics_client.clone();
 
         tokio::spawn(async move {
             if let Err(e) =
-                monitor_container_resources(container_id, docker, config, containers).await
+                monitor_container_resources(container_id, config, containers, &metrics_client).await
             {
                 error!("Failed to monitor container resources: {}", e);
             }
@@ -367,118 +386,44 @@ impl ContainerPool {
     }
 }
 
-/// Fetch container statistics from Docker
-async fn fetch_container_stats(container_id: &str, docker: &Docker) -> AppResult<(f64, u64)> {
-    let mut stats_stream = docker.stats(
-        container_id,
-        Some(StatsOptions {
-            stream: false,
-            one_shot: true,
-        }),
-    );
-
-    if let Some(stats_result) = stats_stream.next().await {
-        let stats = stats_result
-            .map_err(|e| RuntimeError::System(format!("Failed to get container stats: {e}")))?;
-
-        // Convert stats to JSON for easier parsing
-        let stats_json = serde_json::to_value(&stats)
-            .map_err(|e| RuntimeError::System(format!("Failed to serialize stats: {e}")))?;
-
-        // Parse CPU and memory from the stats response
-        let cpu_usage = extract_cpu_percentage(&stats_json)?;
-        let memory_usage = extract_memory_usage(&stats_json)?;
-
-        Ok((cpu_usage, memory_usage))
-    } else {
-        Err(RuntimeError::System(
-            "No stats available for container".to_string(),
-        ))
-    }
-}
-
-/// Extract CPU percentage from stats response
-fn extract_cpu_percentage(stats: &Value) -> AppResult<f64> {
-    // Try to extract CPU stats from the JSON response
-    let cpu_stats = stats
-        .get("cpu_stats")
-        .ok_or_else(|| RuntimeError::System("No CPU stats available".to_string()))?;
-
-    let precpu_stats = stats
-        .get("precpu_stats")
-        .ok_or_else(|| RuntimeError::System("No previous CPU stats available".to_string()))?;
-
-    let cpu_total = cpu_stats
-        .get("cpu_usage")
-        .and_then(|usage| usage.get("total_usage"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as f64;
-
-    let precpu_total = precpu_stats
-        .get("cpu_usage")
-        .and_then(|usage| usage.get("total_usage"))
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as f64;
-
-    let cpu_delta = cpu_total - precpu_total;
-
-    let system_delta = cpu_stats
-        .get("system_cpu_usage")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as f64
-        - precpu_stats
-            .get("system_cpu_usage")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as f64;
-
-    let number_cpus = cpu_stats
-        .get("online_cpus")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(1) as f64;
-
-    if system_delta > 0.0 && cpu_delta > 0.0 {
-        Ok((cpu_delta / system_delta) * number_cpus)
-    } else {
-        Ok(0.0)
-    }
-}
-
-/// Extract memory usage from stats response
-fn extract_memory_usage(stats: &Value) -> AppResult<u64> {
-    stats
-        .get("memory_stats")
-        .and_then(|mem| mem.get("usage"))
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| RuntimeError::System("No memory usage available".to_string()))
+/// Fetch container statistics from Prometheus
+async fn fetch_container_stats(
+    container_id: &str,
+    metrics_client: &Arc<MetricsClient>,
+) -> AppResult<(f64, f64)> {
+    let cpu_percentage = metrics_client.get_container_cpu_usage(container_id).await?;
+    let memory_percentage = metrics_client
+        .get_container_memory_usage(container_id)
+        .await?;
+    Ok((cpu_percentage, memory_percentage))
 }
 
 /// Monitor container resources in a background task
 async fn monitor_container_resources(
     container_id: String,
-    docker: Docker,
     config: MonitoringConfig,
     containers: Arc<RwLock<Vec<ContainerInfo>>>,
+    metrics_client: &Arc<MetricsClient>,
 ) -> AppResult<()> {
     loop {
         sleep(config.poll_interval).await;
-
         // Fetch container stats
-        match fetch_container_stats(&container_id, &docker).await {
-            Ok((cpu_usage, memory_usage)) => {
-                // Update the container info
+        match fetch_container_stats(&container_id, metrics_client).await {
+            Ok((cpu_percentage, memory_percentage)) => {
+                let mut containers_guard = containers.write().unwrap();
+                if let Some(container) = containers_guard.iter_mut().find(|c| c.id == container_id)
                 {
-                    let mut containers_guard = containers.write().unwrap();
-                    if let Some(container) =
-                        containers_guard.iter_mut().find(|c| c.id == container_id)
-                    {
-                        container.update_metrics(
-                            cpu_usage,
-                            memory_usage,
-                            config.cpu_overload_threshold,
-                            config.memory_overload_threshold,
-                            config.cooldown_cpu_threshold,
-                        );
-                    }
+                    info!("=============>>>>>>>>>>> Updating container {} with CPU: {:.2}%, Memory: {:.2}% (source: Prometheus)",
+                                 container.name, cpu_percentage, memory_percentage);
+                    debug!("=============>>>>>>>>>>> Docker stats comparison for {}: check `docker stats --no-stream {}`",
+                                 container.name, &container_id[0..12]);
+                    container.update_metrics(
+                        cpu_percentage,
+                        memory_percentage,
+                        config.cpu_overload_threshold,
+                        config.memory_overload_threshold,
+                        config.cooldown_cpu_threshold,
+                    );
                 }
             }
             Err(e) => {
@@ -509,36 +454,28 @@ mod tests {
 
     #[test]
     fn test_container_info_status_transitions() {
-        let mut container = ContainerInfo::new(
-            "test-id".to_string(),
-            "test-name".to_string(),
-            0,
-        );
+        let mut container = ContainerInfo::new("test-id".to_string(), "test-name".to_string(), 0);
 
-        // Test overload detection
-        container.update_metrics(0.8, 400_000_000, 0.7, 300_000_000, 0.1);
+        // Test overload detection (80% CPU, 75% memory vs 70% thresholds)
+        container.update_metrics(80.0, 75.0, 70.0, 70.0, 10.0);
         assert_eq!(container.status, ContainerStatus::Overloaded);
 
-        // Test return to healthy
-        container.update_metrics(0.5, 200_000_000, 0.7, 300_000_000, 0.1);
+        // Test return to healthy (50% CPU, 50% memory vs 70% thresholds)
+        container.update_metrics(50.0, 50.0, 70.0, 70.0, 10.0);
         assert_eq!(container.status, ContainerStatus::Healthy);
 
-        // Test idle detection
-        container.update_metrics(0.05, 100_000_000, 0.7, 300_000_000, 0.1);
+        // Test idle detection (5% CPU vs 10% cooldown threshold)
+        container.update_metrics(5.0, 30.0, 70.0, 70.0, 10.0);
         assert_eq!(container.status, ContainerStatus::Idle);
         assert!(container.idle_since.is_some());
     }
 
     #[test]
     fn test_container_active_marking() {
-        let mut container = ContainerInfo::new(
-            "test-id".to_string(),
-            "test-name".to_string(),
-            0,
-        );
+        let mut container = ContainerInfo::new("test-id".to_string(), "test-name".to_string(), 0);
 
-        // Make container idle
-        container.update_metrics(0.05, 100_000_000, 0.7, 300_000_000, 0.1);
+        // Make container idle (5% CPU vs 10% cooldown threshold)
+        container.update_metrics(5.0, 30.0, 70.0, 70.0, 10.0);
         assert_eq!(container.status, ContainerStatus::Idle);
 
         // Mark as active should change status back to healthy

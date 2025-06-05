@@ -14,7 +14,7 @@ use tokio::spawn;
 
 const BYTES_IN_MB: i64 = 1024 * 1024; // 1 MB in bytes
 const SIZE_256_MB: i64 = 256 * BYTES_IN_MB; // 256 MB in bytes
-const NUM_CPUS: f64 = 1.0;
+const NUM_CPUS: f64 = 2.0;
 #[derive(Debug, Clone)]
 pub struct ContainerDetails {
     pub container_id: String,

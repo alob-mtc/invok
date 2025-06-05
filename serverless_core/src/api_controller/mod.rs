@@ -15,7 +15,7 @@ use handlers::{
 };
 use redis::aio::MultiplexedConnection;
 use runtime::core::autoscaler::Autoscaler;
-use runtime::core::integration::AutoscalingRuntimeBuilder;
+use runtime::core::builder::AutoscalingRuntimeBuilder;
 use sea_orm::{Database, DatabaseConnection};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -99,9 +99,10 @@ pub async fn start_server() -> Result<(), InvokAppError> {
         .cooldown_duration(Duration::from_secs(
             config.function_config.autoscaling.cooldown_duration_secs,
         ))
-        .poll_interval(Duration::from_secs(
+        .scale_check_interval(Duration::from_secs(
             config.function_config.autoscaling.poll_interval_secs,
         ))
+        .prometheus_url(config.function_config.autoscaling.prometheus_url.clone())
         .build(config.server_config.docker_compose_network_host.to_string());
 
     // Start runtime

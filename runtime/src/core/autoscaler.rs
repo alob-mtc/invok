@@ -1,4 +1,5 @@
 use crate::core::container_manager::{ContainerPool, MonitoringConfig};
+use crate::core::metrics_client::MetricsClient;
 use crate::core::runner::{runner, ContainerDetails};
 use crate::shared::error::{AppResult, RuntimeError};
 use crate::shared::utils::{random_container_name, random_port};
@@ -28,6 +29,8 @@ pub struct Autoscaler {
     config: AutoscalerConfig,
     /// Network host for containers
     docker_compose_network_host: String,
+    /// Optional metrics client for Prometheus
+    metrics_client: Arc<MetricsClient>,
 }
 
 impl Autoscaler {
@@ -35,12 +38,14 @@ impl Autoscaler {
         docker: Docker,
         config: AutoscalerConfig,
         docker_compose_network_host: String,
+        metrics_client: MetricsClient,
     ) -> Self {
         Self {
             pools: Arc::new(RwLock::new(HashMap::new())),
             docker,
             config,
             docker_compose_network_host,
+            metrics_client: Arc::new(metrics_client),
         }
     }
 
@@ -90,14 +95,17 @@ impl Autoscaler {
         }
 
         // Create new pool
-        let pool = Arc::new(ContainerPool::new(
+        let pool = ContainerPool::new(
             function_key.to_string(),
             self.docker.clone(),
             self.docker_compose_network_host.clone(),
             self.config.monitoring.clone(),
             self.config.min_containers_per_function,
             self.config.max_containers_per_function,
-        ));
+            self.metrics_client.clone(),
+        );
+
+        let pool = Arc::new(pool);
 
         {
             let mut pools = self.pools.write().unwrap();
@@ -209,16 +217,18 @@ impl Autoscaler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::metrics_client::MetricsConfig;
     use std::time::Duration;
 
     fn create_test_config() -> AutoscalerConfig {
         AutoscalerConfig {
             monitoring: MonitoringConfig {
-                cpu_overload_threshold: 0.7,
-                memory_overload_threshold: 300_000_000,
+                cpu_overload_threshold: 70.0,
+                memory_overload_threshold: 70.0,
                 cooldown_cpu_threshold: 0.1,
                 cooldown_duration: Duration::from_secs(30),
                 poll_interval: Duration::from_secs(2),
+                prometheus_url: "http://prometheus:9090".to_string(),
             },
             min_containers_per_function: 1,
             max_containers_per_function: 5,
@@ -230,7 +240,12 @@ mod tests {
     async fn test_autoscaler_creation() {
         let docker = Docker::connect_with_http_defaults().unwrap();
         let config = create_test_config();
-        let autoscaler = Autoscaler::new(docker, config, "test-network".to_string());
+        let autoscaler = Autoscaler::new(
+            docker,
+            config,
+            "test-network".to_string(),
+            MetricsClient::new(MetricsConfig::default()),
+        );
 
         assert_eq!(autoscaler.pools.read().unwrap().len(), 0);
     }
@@ -239,7 +254,12 @@ mod tests {
     async fn test_pool_creation() {
         let docker = Docker::connect_with_http_defaults().unwrap();
         let config = create_test_config();
-        let autoscaler = Autoscaler::new(docker, config, "test-network".to_string());
+        let autoscaler = Autoscaler::new(
+            docker,
+            config,
+            "test-network".to_string(),
+            MetricsClient::new(MetricsConfig::default()),
+        );
 
         let pool = autoscaler.get_or_create_pool("test-function").await;
         assert_eq!(pool.get_function_name(), "test-function");

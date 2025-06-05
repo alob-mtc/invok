@@ -1,8 +1,8 @@
+use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use rand::distributions::Alphanumeric;
 
 pub fn timeout(timeout: Duration) -> (mpsc::Receiver<()>, Box<dyn FnOnce()>) {
     let (tx, rx) = mpsc::channel();

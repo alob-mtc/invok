@@ -88,8 +88,6 @@ fn convert_req_header_to_axum_headers(
     }
 }
 
-
-
 /// Creates a URL from the given address, key, and query parameters.
 ///
 /// The query parameters are URL-encoded.

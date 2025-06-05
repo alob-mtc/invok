@@ -2,15 +2,17 @@ use crate::db::cache::FunctionCacheRepo;
 use crate::db::function::FunctionDBRepo;
 use crate::lifecycle_manager::error::ServelessCoreError::FunctionFailedToStart;
 use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
-use crate::utils::utils::{generate_hash};
+use crate::utils::utils::generate_hash;
 use redis::aio::MultiplexedConnection;
-use runtime::core::{autoscaler::Autoscaler, runner::{runner, ContainerDetails}};
+use runtime::core::{
+    autoscaler::Autoscaler,
+    runner::{runner, ContainerDetails},
+};
 use runtime::shared::utils::{random_container_name, random_port};
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
-
 
 const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 50;
 /// Checks if a function is registered in the database.

@@ -20,6 +20,7 @@ services:
       - postgres
       - redis
       - socat
+      - prometheus
     ports:
       - "3000:3000"
     networks:
@@ -28,13 +29,19 @@ services:
       DATABASE_URL: "postgres://postgres:postgres@postgres:5432/serverless"
       REDIS_URL: "redis://redis:6379"
       AUTH_JWT_SECRET: "your-secret-key-here"
-      RUST_LOG: "info"
+      RUST_LOG: "debug"
       DOCKER_HOST: "socat:2375"
       # It is important to set this correctly, you can find the correct value by running `docker network ls` and it should be <>_infra_network
       DOCKER_COMPOSE_NETWORK: "serverless_infra_network"
       MIN_CONTAINERS_PER_FUNCTION: "1"
-      CPU_OVERLOAD_THRESHOLD: "0.04"
-      COOLDOWN_CPU_THRESHOLD: "0.01"
+      MAX_CONTAINERS_PER_FUNCTION: "5"
+      MEMORY_OVERLOAD_THRESHOLD: "100.0"
+      CPU_OVERLOAD_THRESHOLD: "80.0"
+      COOLDOWN_CPU_THRESHOLD: "0.0"
+      POLL_INTERVAL_SECS: "1"
+      COOLDOWN_DURATION_SECS: "15"
+      # New monitoring configuration
+      PROMETHEUS_URL: "http://prometheus:9090"
 
   postgres:
     image: postgres:15
@@ -58,8 +65,63 @@ services:
     networks:
       - infra_network
 
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - infra_network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - infra_network
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    networks:
+      - infra_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   infra_network:
