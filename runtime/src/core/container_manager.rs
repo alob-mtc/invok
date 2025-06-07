@@ -331,6 +331,20 @@ impl ContainerPool {
         }
     }
 
+    /// Check if we need to scale up (all containers overloaded)
+    pub fn needs_scale_up(&self) -> bool {
+        if self.containers.len() >= self.max_containers {
+            return false;
+        }
+
+        // Scale up if all containers are overloaded
+        !self.containers.is_empty()
+            && self
+                .containers
+                .iter()
+                .all(|entry| entry.value().status == ContainerStatus::Overloaded)
+    }
+
     /// Get containers eligible for scale-down
     pub fn get_scaledown_candidates(&self) -> Vec<String> {
         if self.containers.is_empty() {

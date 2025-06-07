@@ -69,14 +69,20 @@ impl Autoscaler {
                     .collect();
                 // Process each pool without holding the main lock
                 for (function_key, pool) in pool_snapshot {
+                    // Update pool metrics
                     let _ = pool.update_containers_metrics().await;
                     info!("Autoscaler state: {:?} \n\n", pool.get_status());
-                    // Update pool metrics
-                    if let Err(e) =
-                        Self::check_and_scale_down_pool(function_key.as_str(), pool, &config).await
-                    {
-                        error!("Failed to check/scale pool for {}: {}", function_key, e);
+
+                    // Check for scale-up needs
+                    if pool.needs_scale_up() {
+                        if let Err(e) = Self::scale_up_function(&function_key, pool.clone()).await {
+                            error!("Failed to scale up pool for {}: {}", function_key, e);
+                        }
                     }
+
+                    // Check and scale down if needed
+                    let _ =
+                        Self::check_and_scale_down_pool(function_key.as_str(), pool, &config).await;
                 }
                 debug!("Autoscaler scan end\n");
             }
@@ -127,10 +133,6 @@ impl Autoscaler {
             return Some(container);
         }
 
-        debug!(
-            "No healthy containers available for function {}, checking for scale-up",
-            function_key
-        );
         // If no containers available, try to scale up immediately
         if pool.container_count() < self.config.max_containers_per_function {
             match Self::scale_up_function(function_key, Arc::clone(&pool)).await {

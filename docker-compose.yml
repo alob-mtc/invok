@@ -33,12 +33,12 @@ services:
       DOCKER_HOST: "socat:2375"
       # It is important to set this correctly, you can find the correct value by running `docker network ls` and it should be <>_infra_network
       DOCKER_COMPOSE_NETWORK: "serverless_infra_network"
-      MIN_CONTAINERS_PER_FUNCTION: "1"
+      MIN_CONTAINERS_PER_FUNCTION: "0"
       MAX_CONTAINERS_PER_FUNCTION: "5"
       MEMORY_OVERLOAD_THRESHOLD: "100.0"
       CPU_OVERLOAD_THRESHOLD: "80.0"
       COOLDOWN_CPU_THRESHOLD: "0.0"
-      POLL_INTERVAL_SECS: "1"
+      POLL_INTERVAL_SECS: "5"
       COOLDOWN_DURATION_SECS: "60"
       # New monitoring configuration
       PROMETHEUS_URL: "http://prometheus:9090"
