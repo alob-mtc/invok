@@ -4,6 +4,7 @@ use crate::core::runner::{runner, ContainerDetails};
 use crate::shared::error::{AppResult, RuntimeError};
 use crate::shared::utils::{random_container_name, random_port};
 use bollard::Docker;
+use dashmap::DashMap;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -22,7 +23,7 @@ pub struct AutoscalerConfig {
 /// Main autoscaler that manages container pools for all functions
 pub struct Autoscaler {
     /// Container pools indexed by function key (function_name-user_hash)
-    pools: Arc<RwLock<HashMap<String, Arc<ContainerPool>>>>,
+    pools: Arc<DashMap<String, Arc<ContainerPool>>>,
     /// Docker client
     docker: Docker,
     /// Configuration
@@ -41,7 +42,7 @@ impl Autoscaler {
         metrics_client: MetricsClient,
     ) -> Self {
         Self {
-            pools: Arc::new(RwLock::new(HashMap::new())),
+            pools: Arc::new(DashMap::new()),
             docker,
             config,
             docker_compose_network_host,
@@ -58,27 +59,26 @@ impl Autoscaler {
 
         tokio::spawn(async move {
             let mut interval = interval(config.scale_check_interval);
-
             loop {
                 interval.tick().await;
-                info!("Autoscaler scan start...\n");
+                debug!("Autoscaler scan start...\n");
                 // Get a snapshot of current pools to avoid holding the lock across await
-                let pool_snapshot: Vec<(String, Arc<ContainerPool>)> = {
-                    let pools_guard = pools.read().unwrap();
-                    pools_guard
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.clone()))
-                        .collect()
-                };
-
+                let pool_snapshot: Vec<_> = pools
+                    .iter()
+                    .map(|entry| (entry.key().clone(), entry.value().clone()))
+                    .collect();
                 // Process each pool without holding the main lock
                 for (function_key, pool) in pool_snapshot {
+                    let _ = pool.update_containers_metrics().await;
                     info!("Autoscaler state: {:?} \n\n", pool.get_status());
-                    if let Err(e) = Self::check_and_scale_pool(&function_key, pool, &config).await {
+                    // Update pool metrics
+                    if let Err(e) =
+                        Self::check_and_scale_down_pool(function_key.as_str(), pool, &config).await
+                    {
                         error!("Failed to check/scale pool for {}: {}", function_key, e);
                     }
                 }
-                info!("Autoscaler scan end\n");
+                debug!("Autoscaler scan end\n");
             }
         });
 
@@ -87,11 +87,12 @@ impl Autoscaler {
 
     /// Get or create a container pool for a function
     pub async fn get_or_create_pool(&self, function_key: &str) -> Arc<ContainerPool> {
-        {
-            let pools = self.pools.read().unwrap();
-            if let Some(pool) = pools.get(function_key) {
-                return Arc::clone(pool);
-            }
+        if let Some(pool) = self.pools.get(function_key) {
+            debug!(
+                "Using existing container pool for function: {}",
+                function_key
+            );
+            return pool.clone();
         }
 
         // Create new pool
@@ -105,12 +106,9 @@ impl Autoscaler {
             self.metrics_client.clone(),
         );
 
+        debug!("Creating new container pool for function: {}", function_key);
         let pool = Arc::new(pool);
-
-        {
-            let mut pools = self.pools.write().unwrap();
-            pools.insert(function_key.to_string(), Arc::clone(&pool));
-        }
+        self.pools.insert(function_key.to_string(), pool.clone());
 
         info!("Created new container pool for function: {}", function_key);
         pool
@@ -129,6 +127,10 @@ impl Autoscaler {
             return Some(container);
         }
 
+        debug!(
+            "No healthy containers available for function {}, checking for scale-up",
+            function_key
+        );
         // If no containers available, try to scale up immediately
         if pool.container_count() < self.config.max_containers_per_function {
             match Self::scale_up_function(function_key, Arc::clone(&pool)).await {
@@ -155,10 +157,14 @@ impl Autoscaler {
 
     /// Get status of all pools for monitoring/debugging
     pub fn get_all_pool_status(&self) -> HashMap<String, serde_json::Value> {
-        let pools = self.pools.read().unwrap();
-        pools
+        self.pools
             .iter()
-            .map(|(key, pool)| (key.clone(), serde_json::json!(pool.get_status())))
+            .map(|entry| {
+                (
+                    entry.key().clone(),
+                    serde_json::json!(entry.value().get_status()),
+                )
+            })
             .collect()
     }
 
@@ -168,16 +174,11 @@ impl Autoscaler {
     }
 
     /// Check and scale a specific pool
-    async fn check_and_scale_pool(
+    async fn check_and_scale_down_pool(
         function_key: &str,
         pool: Arc<ContainerPool>,
         config: &AutoscalerConfig,
     ) -> AppResult<()> {
-        // Check for scale-up needs
-        if pool.needs_scale_up() && pool.container_count() < config.max_containers_per_function {
-            Self::scale_up_function(function_key, pool.clone()).await?;
-        }
-
         // Check for scale-down opportunities
         let candidates = pool.get_scaledown_candidates();
         for container_id in candidates {
@@ -247,7 +248,7 @@ mod tests {
             MetricsClient::new(MetricsConfig::default()),
         );
 
-        assert_eq!(autoscaler.pools.read().unwrap().len(), 0);
+        assert_eq!(autoscaler.pools.len(), 0);
     }
 
     #[tokio::test]
@@ -263,10 +264,10 @@ mod tests {
 
         let pool = autoscaler.get_or_create_pool("test-function").await;
         assert_eq!(pool.get_function_name(), "test-function");
-        assert_eq!(autoscaler.pools.read().unwrap().len(), 1);
+        assert_eq!(autoscaler.pools.len(), 1);
 
         // Getting the same pool should return the existing one
         let pool2 = autoscaler.get_or_create_pool("test-function").await;
-        assert_eq!(autoscaler.pools.read().unwrap().len(), 1);
+        assert_eq!(autoscaler.pools.len(), 1);
     }
 }

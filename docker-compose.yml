@@ -39,7 +39,7 @@ services:
       CPU_OVERLOAD_THRESHOLD: "80.0"
       COOLDOWN_CPU_THRESHOLD: "0.0"
       POLL_INTERVAL_SECS: "1"
-      COOLDOWN_DURATION_SECS: "15"
+      COOLDOWN_DURATION_SECS: "60"
       # New monitoring configuration
       PROMETHEUS_URL: "http://prometheus:9090"
 

@@ -99,6 +99,7 @@ pub async fn start_server() -> Result<(), InvokAppError> {
         .cooldown_duration(Duration::from_secs(
             config.function_config.autoscaling.cooldown_duration_secs,
         ))
+        .cooldown_cpu_threshold(config.function_config.autoscaling.cooldown_cpu_threshold)
         .scale_check_interval(Duration::from_secs(
             config.function_config.autoscaling.poll_interval_secs,
         ))

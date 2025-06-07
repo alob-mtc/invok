@@ -4,11 +4,14 @@ use crate::shared::error::{AppResult, RuntimeError};
 use crate::shared::utils::{random_container_name, random_port};
 use bollard::container::{RemoveContainerOptions, StatsOptions};
 use bollard::Docker;
+use dashmap::DashMap;
+use futures_util::future::join_all;
 use futures_util::StreamExt;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
+use tokio::task::JoinError;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
@@ -32,10 +35,6 @@ pub struct ContainerInfo {
     pub name: String,
     /// Container port
     pub container_port: u32,
-    /// Current CPU usage percentage (0.0-100.0)
-    pub cpu_usage: f64,
-    /// Current memory usage percentage (0.0-100.0)
-    pub memory_usage: f64,
     /// Container status
     pub status: ContainerStatus,
     /// Last time this container handled a request
@@ -50,8 +49,6 @@ impl ContainerInfo {
             id,
             name,
             container_port,
-            cpu_usage: 0.0,
-            memory_usage: 0.0,
             status: ContainerStatus::Healthy,
             last_active: Instant::now(),
             idle_since: None,
@@ -65,22 +62,19 @@ impl ContainerInfo {
         memory_usage: f64,
         cpu_threshold: f64,
         memory_threshold: f64,
-        cooldown_threshold: f64,
+        cooldown_cpu_threshold: f64,
     ) {
-        self.cpu_usage = cpu_usage;
-        self.memory_usage = memory_usage;
-
         let old_status = self.status.clone();
 
         // Determine new status based on thresholds
         if cpu_usage > cpu_threshold || memory_usage > memory_threshold {
             self.status = ContainerStatus::Overloaded;
             self.idle_since = None;
-        } else if cpu_usage < cooldown_threshold {
+        } else if cpu_usage <= cooldown_cpu_threshold {
             if self.status != ContainerStatus::Idle {
                 self.idle_since = Some(Instant::now());
+                self.status = ContainerStatus::Idle;
             }
-            self.status = ContainerStatus::Idle;
         } else {
             self.status = ContainerStatus::Healthy;
             self.idle_since = None;
@@ -107,6 +101,17 @@ impl ContainerInfo {
     pub fn is_eligible_for_scaledown(&self, cooldown_duration: Duration) -> bool {
         if let Some(idle_since) = self.idle_since {
             self.status == ContainerStatus::Idle && idle_since.elapsed() >= cooldown_duration
+        } else {
+            false
+        }
+    }
+
+    /// Check if container is within safe window
+    pub fn is_within_safe_window(&self, cooldown_duration: Duration) -> bool {
+        let safe_window = Duration::from_secs(5);
+        if let Some(idle_since) = self.idle_since {
+            self.status == ContainerStatus::Idle
+                && idle_since.elapsed() <= cooldown_duration - safe_window
         } else {
             false
         }
@@ -142,7 +147,7 @@ pub struct ContainerPool {
     /// Function name this pool manages
     function_name: String,
     /// List of containers in this pool
-    containers: Arc<RwLock<Vec<ContainerInfo>>>,
+    containers: Arc<DashMap<String, ContainerInfo>>,
     /// Docker client for container operations
     docker: Docker,
     /// Docker network
@@ -167,9 +172,11 @@ impl ContainerPool {
         max_containers: usize,
         metrics_client: Arc<MetricsClient>,
     ) -> Self {
+        // TODO: fetch from cache if already existing and build the pool
+
         Self {
             function_name,
-            containers: Arc::new(RwLock::new(Vec::new())),
+            containers: Arc::new(DashMap::new()),
             docker,
             network_host,
             config,
@@ -205,48 +212,100 @@ impl ContainerPool {
             container_details.container_port.clone(),
         );
 
-        {
-            let mut containers = self.containers.write().unwrap();
-            containers.push(container_info);
-        }
+        self.containers
+            .insert(container_info.id.clone(), container_info.clone());
 
         info!(
             "Added container {} to pool for function {}",
             container_details.container_name, self.function_name
         );
 
-        // Start monitoring this container
-        let config = self.config.clone();
-        let containers = self.containers.clone();
-        let metrics_client = self.metrics_client.clone();
-
-        tokio::spawn(async move {
-            if let Err(e) =
-                monitor_container_resources(container_id, config, containers, &metrics_client).await
-            {
-                error!("Failed to monitor container resources: {}", e);
-            }
-        });
-
         Ok(container_details)
+    }
+
+    /// Update container metrics
+    pub async fn update_containers_metrics(&self) -> AppResult<()> {
+        if self.containers.is_empty() {
+            return Ok(());
+        }
+
+        let fn_name = &self.function_name;
+        let total = self.containers.len();
+        debug!(
+            "Updating metrics for {} containers in pool for function {}",
+            total, fn_name
+        );
+
+        // Snapshot all entries so we drop DashMap locks before .await
+        let entries: Vec<(String, ContainerInfo)> = self
+            .containers
+            .iter()
+            .map(|e| (e.key().clone(), e.value().clone()))
+            .collect();
+
+        let handles: Vec<_> = entries
+            .into_iter()
+            .map(|(id, mut info)| {
+                let containers = Arc::clone(&self.containers);
+                let cfg = self.config.clone();
+                let metrics_client = self.metrics_client.clone();
+
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        update_container_resources(id.clone(), cfg, &mut info, &metrics_client)
+                            .await
+                    {
+                        error!("Failed to monitor container {}: {}", id, e);
+                    }
+
+                    debug!(
+                        "Updating container {} with status {:?}",
+                        info.name, info.status
+                    );
+                    containers.insert(id, info);
+                })
+            })
+            .collect();
+
+        let results: Vec<Result<(), JoinError>> = join_all(handles).await;
+        for result in results {
+            if let Err(join_err) = result {
+                error!(
+                    "Container‐update task panicked or was cancelled: {}",
+                    join_err
+                );
+            }
+        }
+
+        debug!(
+            "Finished updating metrics for pool for function {}",
+            fn_name
+        );
+        Ok(())
     }
 
     /// Get the healthiest container for load balancing
     pub fn get_healthiest_container(&self) -> Option<ContainerDetails> {
-        let containers = self.containers.read().unwrap();
-
-        // Filter healthy containers and sort by CPU usage
-        let mut healthy_containers: Vec<&ContainerInfo> = containers
+        // Filter healthy containers and sort by last active time
+        let mut healthy_containers: Vec<_> = self
+            .containers
             .iter()
-            // TODO: pick idle within safe window or lock the container to it doesn't get cleaned up
-            .filter(|c| c.status == ContainerStatus::Healthy || c.status == ContainerStatus::Idle)
+            .filter(|entry| {
+                let container = entry.value();
+                container.status == ContainerStatus::Healthy
+                    || (container.status == ContainerStatus::Idle
+                        && container.is_within_safe_window(self.config.cooldown_duration))
+            })
+            .map(|entry| entry.value().clone())
             .collect();
 
         if healthy_containers.is_empty() {
             // If no healthy containers, try overloaded ones as last resort
-            let overloaded: Vec<&ContainerInfo> = containers
+            let overloaded: Vec<_> = self
+                .containers
                 .iter()
-                .filter(|c| c.status == ContainerStatus::Overloaded)
+                .filter(|entry| entry.value().status == ContainerStatus::Overloaded)
+                .map(|entry| entry.value().clone())
                 .collect();
 
             if !overloaded.is_empty() {
@@ -254,81 +313,59 @@ impl ContainerPool {
                     "No healthy containers available for {}, using overloaded container",
                     self.function_name
                 );
-                return Some(toContainerDetails(overloaded[0]));
+                return Some(toContainerDetails(&overloaded[0]));
             }
             return None;
         }
 
-        // Sort by CPU usage (ascending) and last active time
-        healthy_containers.sort_by(|a, b| {
-            a.cpu_usage
-                .partial_cmp(&b.cpu_usage)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.last_active.cmp(&b.last_active))
-        });
+        // Sort by last active time (oldest first for round-robin)
+        healthy_containers.sort_by(|a, b| a.last_active.cmp(&b.last_active));
 
-        Some(toContainerDetails(healthy_containers[0]))
+        Some(toContainerDetails(&healthy_containers[0]))
     }
 
     /// Mark a container as active (just handled a request)
     pub fn mark_container_active(&self, container_id: &str) {
-        let mut containers = self.containers.write().unwrap();
-        if let Some(container) = containers.iter_mut().find(|c| c.id == container_id) {
-            container.mark_active();
+        if let Some(mut entry) = self.containers.get_mut(container_id) {
+            entry.mark_active();
         }
-    }
-
-    /// Check if we need to scale up (all containers overloaded)
-    pub fn needs_scale_up(&self) -> bool {
-        let containers = self.containers.read().unwrap();
-
-        if containers.len() >= self.max_containers {
-            return false;
-        }
-
-        // Scale up if all containers are overloaded
-        !containers.is_empty()
-            && containers
-                .iter()
-                .all(|c| c.status == ContainerStatus::Overloaded)
     }
 
     /// Get containers eligible for scale-down
     pub fn get_scaledown_candidates(&self) -> Vec<String> {
-        let containers = self.containers.read().unwrap();
-
-        if containers.len() <= self.min_containers {
+        if self.containers.is_empty() {
             return Vec::new();
         }
 
-        containers
+        self.containers
             .iter()
-            .filter(|c| c.is_eligible_for_scaledown(self.config.cooldown_duration))
-            .map(|c| c.id.clone())
+            .filter(|entry| {
+                entry
+                    .value()
+                    .is_eligible_for_scaledown(self.config.cooldown_duration)
+            })
+            .map(|entry| entry.key().clone())
             .collect()
     }
 
     /// Remove a container from the pool
     pub async fn remove_container(&self, container_id: &str) -> AppResult<()> {
-        // Remove from Docker
-        clean_up(&self.docker, container_id).await?;
+        self.containers.remove(container_id);
 
-        // Remove from our tracking
-        {
-            let mut containers = self.containers.write().unwrap();
-            containers.retain(|c| c.id != container_id);
-        }
+        // Remove from Docker (now safe to await without holding lock)
+        clean_up(&self.docker, container_id).await?;
 
         info!(
             "Removed container {} from pool for function {}",
             container_id, self.function_name
         );
+
         Ok(())
     }
 
     /// Get current container count
     pub fn container_count(&self) -> usize {
-        self.containers.read().unwrap().len()
+        self.containers.len()
     }
 
     /// Get function name
@@ -336,39 +373,37 @@ impl ContainerPool {
         &self.function_name
     }
 
-    /// Get all container IDs (for cleanup purposes)
-    pub fn get_all_container_ids(&self) -> Vec<String> {
-        let containers = self.containers.read().unwrap();
-        containers.iter().map(|c| c.id.clone()).collect()
-    }
-
     /// Get pool status for debugging
     pub fn get_status(&self) -> HashMap<String, Value> {
-        let containers = self.containers.read().unwrap();
         let mut status = HashMap::new();
 
+        // Basic pool information
         status.insert(
             "function_name".to_string(),
             Value::String(self.function_name.clone()),
         );
+
+        let total_containers = self.containers.len();
         status.insert(
-            "container_count".to_string(),
-            Value::Number(containers.len().into()),
+            "total_containers".to_string(),
+            Value::Number(total_containers.into()),
         );
 
-        let healthy_count = containers
-            .iter()
-            .filter(|c| c.status == ContainerStatus::Healthy)
-            .count();
-        let overloaded_count = containers
-            .iter()
-            .filter(|c| c.status == ContainerStatus::Overloaded)
-            .count();
-        let idle_count = containers
-            .iter()
-            .filter(|c| c.status == ContainerStatus::Idle)
-            .count();
+        // Count containers by status
+        let mut healthy_count = 0;
+        let mut overloaded_count = 0;
+        let mut idle_count = 0;
 
+        for entry in self.containers.iter() {
+            let container = entry.value();
+            match container.status {
+                ContainerStatus::Healthy => healthy_count += 1,
+                ContainerStatus::Overloaded => overloaded_count += 1,
+                ContainerStatus::Idle => idle_count += 1,
+            }
+        }
+
+        // Essential status counts
         status.insert(
             "healthy_containers".to_string(),
             Value::Number(healthy_count.into()),
@@ -381,6 +416,40 @@ impl ContainerPool {
             "idle_containers".to_string(),
             Value::Number(idle_count.into()),
         );
+
+        // Pool health metrics
+        let health_percentage = if total_containers > 0 {
+            (healthy_count as f64 / total_containers as f64) * 100.0
+        } else {
+            0.0
+        };
+        status.insert(
+            "health_percentage".to_string(),
+            Value::Number(
+                serde_json::Number::from_f64(health_percentage)
+                    .unwrap_or_else(|| serde_json::Number::from(0)),
+            ),
+        );
+
+        let capacity_utilization = if self.max_containers > 0 {
+            (total_containers as f64 / self.max_containers as f64) * 100.0
+        } else {
+            0.0
+        };
+        status.insert(
+            "capacity_utilization_percentage".to_string(),
+            Value::Number(
+                serde_json::Number::from_f64(capacity_utilization)
+                    .unwrap_or_else(|| serde_json::Number::from(0)),
+            ),
+        );
+
+        // Scale recommendations
+        let needs_scale_up = healthy_count == 0 && total_containers < self.max_containers;
+        let can_scale_down = idle_count > 0 && total_containers > self.min_containers;
+
+        status.insert("needs_scale_up".to_string(), Value::Bool(needs_scale_up));
+        status.insert("can_scale_down".to_string(), Value::Bool(can_scale_down));
 
         status
     }
@@ -398,42 +467,33 @@ async fn fetch_container_stats(
     Ok((cpu_percentage, memory_percentage))
 }
 
-/// Monitor container resources in a background task
-async fn monitor_container_resources(
+/// update container resources
+async fn update_container_resources(
     container_id: String,
     config: MonitoringConfig,
-    containers: Arc<RwLock<Vec<ContainerInfo>>>,
+    container: &mut ContainerInfo,
     metrics_client: &Arc<MetricsClient>,
 ) -> AppResult<()> {
-    loop {
-        sleep(config.poll_interval).await;
-        // Fetch container stats
-        match fetch_container_stats(&container_id, metrics_client).await {
-            Ok((cpu_percentage, memory_percentage)) => {
-                let mut containers_guard = containers.write().unwrap();
-                if let Some(container) = containers_guard.iter_mut().find(|c| c.id == container_id)
-                {
-                    info!("=============>>>>>>>>>>> Updating container {} with CPU: {:.2}%, Memory: {:.2}% (source: Prometheus)",
+    // Fetch container stats
+    match fetch_container_stats(&container_id, metrics_client).await {
+        Ok((cpu_percentage, memory_percentage)) => {
+            info!("=============>>>>>>>>>>> Updating container {} with CPU: {:.2}%, Memory: {:.2}% (source: Prometheus)",
                                  container.name, cpu_percentage, memory_percentage);
-                    debug!("=============>>>>>>>>>>> Docker stats comparison for {}: check `docker stats --no-stream {}`",
+            debug!("=============>>>>>>>>>>> Docker stats comparison for {}: check `docker stats --no-stream {}`",
                                  container.name, &container_id[0..12]);
-                    container.update_metrics(
-                        cpu_percentage,
-                        memory_percentage,
-                        config.cpu_overload_threshold,
-                        config.memory_overload_threshold,
-                        config.cooldown_cpu_threshold,
-                    );
-                }
-            }
-            Err(e) => {
-                warn!("Failed to get stats for container {}: {}", container_id, e);
-                // Container might be stopped, break the monitoring loop
-                break;
-            }
+            container.update_metrics(
+                cpu_percentage,
+                memory_percentage,
+                config.cpu_overload_threshold,
+                config.memory_overload_threshold,
+                config.cooldown_cpu_threshold,
+            );
+        }
+        Err(e) => {
+            warn!("Failed to get stats for container {}: {}", container_id, e);
+            // Container might be stopped, break the monitoring loop
         }
     }
-
     Ok(())
 }
 
@@ -465,7 +525,7 @@ mod tests {
         assert_eq!(container.status, ContainerStatus::Healthy);
 
         // Test idle detection (5% CPU vs 10% cooldown threshold)
-        container.update_metrics(5.0, 30.0, 70.0, 70.0, 10.0);
+        container.update_metrics(0.00, 30.0, 70.0, 70.0, 0.0);
         assert_eq!(container.status, ContainerStatus::Idle);
         assert!(container.idle_since.is_some());
     }

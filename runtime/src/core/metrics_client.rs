@@ -1,4 +1,5 @@
 use crate::shared::error::{AppResult, RuntimeError};
+use dashmap::DashMap;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,7 +40,7 @@ impl Default for MetricsConfig {
         Self {
             prometheus_url: "http://prometheus:9090".to_string(),
             query_timeout: Duration::from_secs(5),
-            cache_ttl: Duration::from_secs(10),
+            cache_ttl: Duration::from_secs(5),
             max_retries: 3,
         }
     }
@@ -56,9 +57,8 @@ struct CachedMetric {
 pub struct MetricsClient {
     config: MetricsConfig,
     client: Client,
-    // TODO: use redis here
-    cpu_cache: std::sync::RwLock<HashMap<String, CachedMetric>>,
-    memory_cache: std::sync::RwLock<HashMap<String, CachedMetric>>,
+    cpu_cache: DashMap<String, CachedMetric>,
+    memory_cache: DashMap<String, CachedMetric>,
 }
 
 impl MetricsClient {
@@ -71,8 +71,8 @@ impl MetricsClient {
         Self {
             config,
             client,
-            cpu_cache: std::sync::RwLock::new(HashMap::new()),
-            memory_cache: std::sync::RwLock::new(HashMap::new()),
+            cpu_cache: DashMap::new(),
+            memory_cache: DashMap::new(),
         }
     }
 
@@ -198,8 +198,7 @@ impl MetricsClient {
 
     /// Get cached CPU metric if still valid
     fn get_cached_cpu(&self, container_id: &str) -> Option<f64> {
-        let cache = self.cpu_cache.read().ok()?;
-        let cached = cache.get(container_id)?;
+        let cached = self.cpu_cache.get(container_id)?;
 
         if cached.timestamp.elapsed() < self.config.cache_ttl {
             Some(cached.value)
@@ -210,8 +209,7 @@ impl MetricsClient {
 
     /// Get cached memory metric if still valid
     fn get_cached_memory(&self, container_id: &str) -> Option<f64> {
-        let cache = self.memory_cache.read().ok()?;
-        let cached = cache.get(container_id)?;
+        let cached = self.memory_cache.get(container_id)?;
 
         if cached.timestamp.elapsed() < self.config.cache_ttl {
             Some(cached.value)
@@ -222,28 +220,24 @@ impl MetricsClient {
 
     /// Cache CPU metric
     fn cache_cpu_metric(&self, container_id: &str, value: f64) {
-        if let Ok(mut cache) = self.cpu_cache.write() {
-            cache.insert(
-                container_id.to_string(),
-                CachedMetric {
-                    value,
-                    timestamp: Instant::now(),
-                },
-            );
-        }
+        self.cpu_cache.insert(
+            container_id.to_string(),
+            CachedMetric {
+                value,
+                timestamp: Instant::now(),
+            },
+        );
     }
 
     /// Cache memory metric
     fn cache_memory_metric(&self, container_id: &str, value: f64) {
-        if let Ok(mut cache) = self.memory_cache.write() {
-            cache.insert(
-                container_id.to_string(),
-                CachedMetric {
-                    value,
-                    timestamp: Instant::now(),
-                },
-            );
-        }
+        self.memory_cache.insert(
+            container_id.to_string(),
+            CachedMetric {
+                value,
+                timestamp: Instant::now(),
+            },
+        );
     }
 
     /// Health check for the metrics client
@@ -265,7 +259,7 @@ mod tests {
         let config = MetricsConfig::default();
         assert_eq!(config.prometheus_url, "http://prometheus:9090");
         assert_eq!(config.query_timeout, Duration::from_secs(5));
-        assert_eq!(config.cache_ttl, Duration::from_secs(10));
+        assert_eq!(config.cache_ttl, Duration::from_secs(5));
         assert_eq!(config.max_retries, 3);
     }
 

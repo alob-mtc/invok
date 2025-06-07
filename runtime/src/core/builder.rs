@@ -28,15 +28,15 @@ impl Default for AutoscalingRuntimeBuilder {
         Self {
             cpu_overload_threshold: 70.0,
             memory_overload_threshold: 70.0,
-            cooldown_cpu_threshold: 10.0,
+            cooldown_cpu_threshold: 0.0,
             cooldown_duration: Duration::from_secs(30),
             poll_interval: Duration::from_secs(2),
             min_containers_per_function: 1,
             max_containers_per_function: 10,
-            scale_check_interval: Duration::from_secs(10),
+            scale_check_interval: Duration::from_secs(1),
             prometheus_url: "http://prometheus:9090".to_string(),
             query_timeout: 3,
-            cache_ttl: 10,
+            cache_ttl: 5,
             max_retries: 3,
         }
     }
@@ -111,7 +111,7 @@ impl AutoscalingRuntimeBuilder {
             max_retries: self.max_retries,
         };
         let metrics_client = MetricsClient::new(metrics_config);
-        let mut autoscaler =
+        let autoscaler =
             Autoscaler::new(docker, config, docker_compose_network_host, metrics_client);
         autoscaler
     }
