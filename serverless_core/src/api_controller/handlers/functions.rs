@@ -8,11 +8,13 @@ use crate::api_controller::AppState;
 use crate::db::function::FunctionDBRepo;
 use crate::db::models::DeployableFunction;
 use crate::lifecycle_manager::deploy::deploy_function;
-use crate::lifecycle_manager::invoke::{check_function_status, start_function};
+use crate::lifecycle_manager::error::ServelessCoreError::{FunctionFailedToStart, SystemError};
+use crate::lifecycle_manager::invoke::{check_function_status, start_function, start_function_v2};
 use crate::utils::utils::make_request;
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::{error, info, warn};
+use uuid;
 
 /// Handles uploading a function as a ZIP file with authentication.
 ///
@@ -152,18 +154,23 @@ async fn read_field_chunks(
 /// Handles calling a function service based on a provided key.
 ///
 /// This endpoint:
-/// - Checks if the function exists in the user's namespace.
-/// - Starts the function if needed (using a cache connection).
-/// - Forwards the incoming request (including headers and query parameters) to the service.
+/// - Validates the namespace (user UUID) format and function name
+/// - Checks if the function exists in the user's namespace
+/// - Determines the appropriate runtime version (v1 or v2)
+/// - Starts the function if needed using the appropriate runtime
+/// - Forwards the incoming request to the service with proper error handling
 ///
 /// # Parameters
 ///
 /// * `namespace` - The user's UUID serving as a namespace for their functions
 /// * `function_name` - The name of the function to invoke
+/// * `query` - Query parameters to forward to the function
+/// * `headers` - HTTP headers to forward to the function
+/// * `request` - The complete HTTP request to forward
 ///
 /// # Returns
 ///
-/// The service's response or an error if any step fails.
+/// The service's response or an appropriate error response
 pub(crate) async fn call_function(
     mut state: State<AppState>,
     Path((namespace, function_name)): Path<(String, String)>,
@@ -171,56 +178,99 @@ pub(crate) async fn call_function(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> impl IntoResponse {
-    // Parse and validate namespace UUID
+    // Validate input parameters
+    if let Err(response) = validate_function_call_inputs(&namespace, &function_name) {
+        return response;
+    }
+
+    // Parse and validate namespace UUID early
     let user_uuid = match namespace.parse() {
         Ok(uuid) => uuid,
         Err(e) => {
             error!(
                 namespace = %namespace,
+                function = %function_name,
                 error = %e,
-                "Invalid function namespace"
+                "Invalid function namespace format"
             );
             return (
                 StatusCode::BAD_REQUEST,
-                format!("Invalid function namespace: {}", e),
+                format!("Invalid function namespace format: {}", e),
             )
                 .into_response();
         }
     };
 
+    // Check function existence and authorization
     if let Err(e) = check_function_status(&state.db_conn, &function_name, user_uuid).await {
         error!(
             namespace = %namespace,
             function = %function_name,
+            user_uuid = %user_uuid,
             error = %e,
             "Function status check failed"
         );
         return e.into_response();
     }
 
-    let docker_compose_network_host = state
-        .config
-        .server_config
-        .docker_compose_network_host
-        .clone();
+    // Determine runtime version from headers
+    let use_v2_runtime = headers
+        .get("version")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "v2")
+        .unwrap_or(false);
 
-    // Attempt to start the function using the cache connection.
-    let addr = match start_function(
-        &mut state.cache_conn,
-        &function_name,
-        user_uuid,
-        docker_compose_network_host,
-    )
-    .await
-    {
-        Ok(addr) => addr,
+    info!(
+        namespace = %namespace,
+        function = %function_name,
+        user_uuid = %user_uuid,
+        runtime_version = if use_v2_runtime { "v2" } else { "v1" },
+        "Starting function invocation"
+    );
+
+    let start_time = std::time::Instant::now();
+    // Start function using appropriate runtime
+    let function_address = if use_v2_runtime {
+        start_function_v2(state.autoscaler.clone(), &function_name, user_uuid).await
+    } else {
+        let docker_compose_network_host = state
+            .config
+            .server_config
+            .docker_compose_network_host
+            .clone();
+        start_function(
+            &mut state.cache_conn,
+            &function_name,
+            user_uuid,
+            docker_compose_network_host,
+        )
+        .await
+    };
+
+    let addr = match function_address {
+        Ok(addr) => {
+            let duration = start_time.elapsed();
+            info!(
+                namespace = %namespace,
+                function = %function_name,
+                user_uuid = %user_uuid,
+                address = %addr,
+                startup_duration_ms = duration.as_millis(),
+                "Function started successfully"
+            );
+            addr
+        }
         Err(e) => {
+            let duration = start_time.elapsed();
             error!(
                 namespace = %namespace,
                 function = %function_name,
+                user_uuid = %user_uuid,
                 error = ?e,
-                "Error starting function"
+                startup_duration_ms = duration.as_millis(),
+                "Failed to start function"
             );
+
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to start function: {}", e),
@@ -229,9 +279,73 @@ pub(crate) async fn call_function(
         }
     };
 
-    info!(namespace = %namespace, function = %function_name, "Making request to service");
-    // Forward the request to the service and return its response.
+    info!(
+        namespace = %namespace,
+        function = %function_name,
+        user_uuid = %user_uuid,
+        address = %addr,
+        "Function started successfully, forwarding request"
+    );
+
+    // Forward the request to the service
     make_request(&addr, &function_name, query, headers, request)
         .await
         .into_response()
+}
+
+/// Validates the input parameters for function calls
+fn validate_function_call_inputs(
+    namespace: &str,
+    function_name: &str,
+) -> Result<(), axum::response::Response> {
+    // Validate namespace format (should be a valid UUID string)
+    if namespace.is_empty() {
+        warn!("Empty namespace provided");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Namespace cannot be empty".to_string(),
+        )
+            .into_response());
+    }
+
+    // Validate function name
+    if function_name.is_empty() {
+        warn!(namespace = %namespace, "Empty function name provided");
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Function name cannot be empty".to_string(),
+        )
+            .into_response());
+    }
+
+    // Check for potentially dangerous characters in function name
+    if function_name.contains("..") || function_name.contains('/') || function_name.contains('\\') {
+        warn!(
+            namespace = %namespace,
+            function = %function_name,
+            "Function name contains invalid characters"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Function name contains invalid characters".to_string(),
+        )
+            .into_response());
+    }
+
+    // Check function name length (reasonable limits)
+    if function_name.len() > 15 {
+        warn!(
+            namespace = %namespace,
+            function = %function_name,
+            function_name_length = function_name.len(),
+            "Function name too long"
+        );
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Function name is too long (max 15 characters)".to_string(),
+        )
+            .into_response());
+    }
+
+    Ok(())
 }

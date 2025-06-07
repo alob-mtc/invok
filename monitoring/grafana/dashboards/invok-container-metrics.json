@@ -1,0 +1,112 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Invok Container Metrics",
+    "tags": ["invok", "containers", "autoscaling"],
+    "style": "dark",
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Container CPU Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{name=~\".*invok.*\"}[30s]) * 100",
+            "legendFormat": "{{name}} CPU %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Container Memory Usage",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "(container_memory_usage_bytes{name=~\".*invok.*\"} / container_spec_memory_limit_bytes{name=~\".*invok.*\"}) * 100",
+            "legendFormat": "{{name}} Memory %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Container Count by Function",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "count by (image) (container_last_seen{name=~\".*invok.*\"})",
+            "legendFormat": "{{image}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        },
+        "gridPos": {
+          "h": 4,
+          "w": 6,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Network I/O",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(container_network_receive_bytes_total{name=~\".*invok.*\"}[1m])",
+            "legendFormat": "{{name}} RX"
+          },
+          {
+            "expr": "rate(container_network_transmit_bytes_total{name=~\".*invok.*\"}[1m])",
+            "legendFormat": "{{name}} TX"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "binBps"
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 6,
+          "y": 8
+        }
+      }
+    ],
+    "time": {
+      "from": "now-5m",
+      "to": "now"
+    },
+    "refresh": "5s"
+  }
+} 

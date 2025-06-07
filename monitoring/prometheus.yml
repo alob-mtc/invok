@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 2s
+  evaluation_interval: 2s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # The job name is added as a label `job=<job_name>` to any timeseries scraped from this config.
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # cAdvisor job to collect container metrics
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 1s
+    metrics_path: '/metrics'
+
+  # Future: Add job for custom invok metrics
+  # - job_name: 'invok-core'
+  #   static_configs:
+  #     - targets: ['invok_core:3000']
+  #   metrics_path: '/metrics' 

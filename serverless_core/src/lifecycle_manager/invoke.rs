@@ -1,12 +1,19 @@
 use crate::db::cache::FunctionCacheRepo;
 use crate::db::function::FunctionDBRepo;
+use crate::lifecycle_manager::error::ServelessCoreError::FunctionFailedToStart;
 use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
-use crate::utils::utils::{generate_hash, random_container_name, random_port};
+use crate::utils::utils::generate_hash;
 use redis::aio::MultiplexedConnection;
-use runtime::core::runner::{runner, ContainerDetails};
+use runtime::core::{
+    autoscaler::Autoscaler,
+    runner::{runner, ContainerDetails},
+};
+use runtime::shared::utils::{random_container_name, random_port};
 use sea_orm::DatabaseConnection;
+use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
+
 const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 50;
 /// Checks if a function is registered in the database.
 ///
@@ -65,6 +72,7 @@ pub async fn start_function(
 
     // Generate a random port and prepare the service address.
     let container_details = ContainerDetails {
+        container_id: "".to_string(),
         container_port: 8080,
         bind_port: random_port(),
         container_name: random_container_name(),
@@ -82,7 +90,7 @@ pub async fn start_function(
     }
 
     // Attempt to run the function container with a timeout slightly longer than the cache TTL.
-    runner(&function_key, container_details.clone())
+    runner(None, &function_key, container_details.clone())
         .await
         .map_err(|e| {
             error!(
@@ -109,4 +117,33 @@ pub async fn start_function(
         name, user_uuid, function_address
     );
     Ok(function_address)
+}
+
+pub async fn start_function_v2(
+    runtime: Arc<Autoscaler>,
+    name: &str,
+    user_uuid: Uuid,
+) -> ServelessCoreResult<String> {
+    // Generate a shorter hash of the UUID for better container names
+    let uuid_short = generate_hash(user_uuid);
+
+    // Create a unique function name based on function name and user's UUID hash
+    let function_key = format!("{name}-{uuid_short}");
+
+    if let Some(container_details) = runtime.get_container_for_invocation(&function_key).await {
+        // Register the function in the cache.
+        let function_address = format!(
+            "{}:{}",
+            &container_details.container_name, &container_details.container_port
+        );
+
+        info!(
+            "Function '{}' for user '{}' started at: {}",
+            name, user_uuid, function_address
+        );
+
+        return Ok(function_address);
+    }
+
+    Err(FunctionFailedToStart("Function did not start".to_string()))
 }
