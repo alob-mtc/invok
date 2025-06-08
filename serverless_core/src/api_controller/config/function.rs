@@ -11,6 +11,7 @@ const COOLDOWN_DURATION_SECS_ENV: &str = "COOLDOWN_DURATION_SECS";
 const MIN_CONTAINERS_PER_FUNCTION_ENV: &str = "MIN_CONTAINERS_PER_FUNCTION";
 const MAX_CONTAINERS_PER_FUNCTION_ENV: &str = "MAX_CONTAINERS_PER_FUNCTION";
 const POLL_INTERVAL_SECS_ENV: &str = "POLL_INTERVAL_SECS";
+const PERSISTENCE_ENABLED_ENV: &str = "PERSISTENCE_ENABLED";
 
 // Prometheus configuration environment variables
 const USE_PROMETHEUS_METRICS_ENV: &str = "USE_PROMETHEUS_METRICS";
@@ -31,6 +32,7 @@ pub const DEFAULT_COOLDOWN_DURATION_SECS: u64 = 30;
 pub const DEFAULT_MIN_CONTAINERS_PER_FUNCTION: usize = 1;
 pub const DEFAULT_MAX_CONTAINERS_PER_FUNCTION: usize = 10;
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 1;
+pub const DEFAULT_PERSISTENCE_ENABLED: bool = true;
 
 // Prometheus defaults
 pub const DEFAULT_USE_PROMETHEUS_METRICS: bool = false;
@@ -60,6 +62,8 @@ pub struct AutoscalingConfig {
     pub prometheus_url: String,
     /// Whether to fallback to Docker stats if Prometheus fails
     pub fallback_to_docker: bool,
+    /// Whether to enable persistence for autoscaling state
+    pub persistence_enabled: bool,
 }
 
 impl Default for AutoscalingConfig {
@@ -75,6 +79,7 @@ impl Default for AutoscalingConfig {
             use_prometheus_metrics: DEFAULT_USE_PROMETHEUS_METRICS,
             prometheus_url: DEFAULT_PROMETHEUS_URL.to_string(),
             fallback_to_docker: DEFAULT_FALLBACK_TO_DOCKER,
+            persistence_enabled: DEFAULT_PERSISTENCE_ENABLED,
         }
     }
 }
@@ -142,6 +147,10 @@ impl InvokFunctionConfig {
                 .ok()
                 .and_then(|s| s.parse::<bool>().ok())
                 .unwrap_or(DEFAULT_FALLBACK_TO_DOCKER),
+            persistence_enabled: env::var(PERSISTENCE_ENABLED_ENV)
+                .ok()
+                .and_then(|s| s.parse::<bool>().ok())
+                .unwrap_or(DEFAULT_PERSISTENCE_ENABLED),
         };
 
         Self {

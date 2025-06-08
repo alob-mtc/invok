@@ -84,6 +84,7 @@ pub async fn start_server() -> Result<(), InvokAppError> {
     let runtime = AutoscalingRuntimeBuilder::new()
         .cpu_overload_threshold(config.function_config.autoscaling.cpu_overload_threshold)
         .memory_overload_threshold(config.function_config.autoscaling.memory_overload_threshold)
+        .docker_compose_network_host(config.server_config.docker_compose_network_host.to_string())
         .min_containers_per_function(
             config
                 .function_config
@@ -103,17 +104,33 @@ pub async fn start_server() -> Result<(), InvokAppError> {
         .scale_check_interval(Duration::from_secs(
             config.function_config.autoscaling.poll_interval_secs,
         ))
-        .prometheus_url(config.function_config.autoscaling.prometheus_url.clone())
-        .build(config.server_config.docker_compose_network_host.to_string());
+        .persistence_enabled(config.function_config.autoscaling.persistence_enabled)
+        .redis_url(config.server_config.redis_url.clone())
+        .persistence_batch_size(20) // Load 20 pools at a time during recovery
+        .build()
+        .await
+        .map_err(|e| {
+            error!("Failed to build autoscaling runtime: {}", e);
+            InvokAppError::ConfigError(InvokConfigError::InvalidValue(format!(
+                "Runtime build error: {}",
+                e
+            )))
+        })?;
 
     // Start runtime
-    runtime.start().await.unwrap();
+    runtime.start().await.map_err(|e| {
+        error!("Failed to start autoscaling runtime: {}", e);
+        InvokAppError::ConfigError(InvokConfigError::InvalidValue(format!(
+            "Runtime start error: {}",
+            e
+        )))
+    })?;
 
     let app_state = AppState {
         db_conn,
         cache_conn,
         config: config.clone(),
-        autoscaler: Arc::new(runtime),
+        autoscaler: runtime.autoscaler().clone(),
     };
 
     // Create a router with all our routes
