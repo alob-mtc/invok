@@ -9,7 +9,7 @@ use crate::db::function::FunctionDBRepo;
 use crate::db::models::DeployableFunction;
 use crate::lifecycle_manager::deploy::deploy_function;
 use crate::lifecycle_manager::error::ServelessCoreError::{FunctionFailedToStart, SystemError};
-use crate::lifecycle_manager::invoke::{check_function_status, start_function, start_function_v2};
+use crate::lifecycle_manager::invoke::{check_function_status, start_function};
 use crate::utils::utils::make_request;
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
@@ -202,7 +202,7 @@ pub(crate) async fn call_function(
     };
 
     // Check function existence and authorization
-    if let Err(e) = check_function_status(&state.db_conn, &function_name, user_uuid).await {
+    if let Err(e) = check_function_status(&state.db_conn, &mut state.cache_conn, &function_name, user_uuid).await {
         error!(
             namespace = %namespace,
             function = %function_name,
@@ -213,39 +213,16 @@ pub(crate) async fn call_function(
         return e.into_response();
     }
 
-    // Determine runtime version from headers
-    let use_v2_runtime = headers
-        .get("version")
-        .and_then(|v| v.to_str().ok())
-        .map(|v| v == "v2")
-        .unwrap_or(false);
-
     info!(
         namespace = %namespace,
         function = %function_name,
         user_uuid = %user_uuid,
-        runtime_version = if use_v2_runtime { "v2" } else { "v1" },
         "Starting function invocation"
     );
 
     let start_time = std::time::Instant::now();
-    // Start function using appropriate runtime
-    let function_address = if use_v2_runtime {
-        start_function_v2(state.autoscaler.clone(), &function_name, user_uuid).await
-    } else {
-        let docker_compose_network_host = state
-            .config
-            .server_config
-            .docker_compose_network_host
-            .clone();
-        start_function(
-            &mut state.cache_conn,
-            &function_name,
-            user_uuid,
-            docker_compose_network_host,
-        )
-        .await
-    };
+    let function_address =
+        start_function(state.autoscaler.clone(), &function_name, user_uuid).await;
 
     let addr = match function_address {
         Ok(addr) => {
