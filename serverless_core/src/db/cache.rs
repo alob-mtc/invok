@@ -14,9 +14,9 @@ impl FunctionCacheRepo {
     /// # Returns
     ///
     /// * `Some(String)` containing the cached address if found, or `None` if not found or an error occurs.
-    pub async fn get_function(conn: &mut MultiplexedConnection, name: &str) -> Option<String> {
-        match conn.get(name).await {
-            Ok(val) => Some(val),
+    pub async fn get_function(conn: &mut MultiplexedConnection, name: &str) -> Option<()> {
+        match conn.exists(name).await {
+            Ok(_) => Some(()),
             Err(e) => {
                 error!("Failed to retrieve function '{}' from cache: {}", name, e);
                 None
@@ -32,7 +32,6 @@ impl FunctionCacheRepo {
     ///
     /// * `conn` - A mutable reference to the Redis connection.
     /// * `name` - The key representing the function.
-    /// * `addr` - The address of the function.
     /// * `ttl` - Time-to-live in seconds.
     ///
     /// # Returns
@@ -41,14 +40,13 @@ impl FunctionCacheRepo {
     pub async fn add_function(
         conn: &mut MultiplexedConnection,
         name: &str,
-        addr: &str,
         ttl: u64,
     ) -> redis::RedisResult<()> {
         let opts = SetOptions::default()
             .conditional_set(ExistenceCheck::NX)
             .get(true)
             .with_expiration(SetExpiry::EX(ttl));
-        conn.set_options(name, addr, opts).await.map_err(|e| {
+        conn.set_options(name, 1, opts).await.map_err(|e| {
             error!("Failed to add function '{}' to cache: {}", name, e);
             e
         })
