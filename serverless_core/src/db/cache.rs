@@ -15,7 +15,7 @@ impl FunctionCacheRepo {
     ///
     /// * `Some(String)` containing the cached address if found, or `None` if not found or an error occurs.
     pub async fn get_function(conn: &mut MultiplexedConnection, name: &str) -> Option<()> {
-        match conn.exists(name).await {
+        match conn.exists::<&str, usize>(name).await{
             Ok(_) => Some(()),
             Err(e) => {
                 error!("Failed to retrieve function '{}' from cache: {}", name, e);

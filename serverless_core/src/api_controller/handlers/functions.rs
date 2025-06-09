@@ -202,7 +202,7 @@ pub(crate) async fn call_function(
     };
 
     // Check function existence and authorization
-    if let Err(e) = check_function_status(&state.db_conn, &mut state.cache_conn, &function_name, user_uuid).await {
+    if let Err(e) = check_function_status(&mut state, &function_name, user_uuid).await {
         error!(
             namespace = %namespace,
             function = %function_name,
