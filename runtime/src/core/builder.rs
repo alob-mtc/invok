@@ -1,119 +1,185 @@
 use crate::core::autoscaler::{Autoscaler, AutoscalerConfig};
 use crate::core::container_manager::MonitoringConfig;
-use crate::core::metrics_client::{MetricsClient, MetricsConfig};
+use crate::core::metrics_client::MetricsClient;
+use crate::core::persistence::PersistenceConfig;
 use crate::shared::error::{AppResult, RuntimeError};
 use bollard::Docker;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
 
-/// Configuration builder for the autoscaling runtime
-pub struct AutoscalingRuntimeBuilder {
-    cpu_overload_threshold: f64,
-    memory_overload_threshold: f64,
-    cooldown_cpu_threshold: f64,
-    cooldown_duration: Duration,
-    poll_interval: Duration,
-    min_containers_per_function: usize,
-    max_containers_per_function: usize,
-    scale_check_interval: Duration,
-    prometheus_url: String,
-    query_timeout: u64,
-    cache_ttl: u64,
-    max_retries: u32,
+/// The main autoscaling runtime
+pub struct AutoscalingRuntime {
+    pub autoscaler: Arc<Autoscaler>,
 }
 
-impl Default for AutoscalingRuntimeBuilder {
-    fn default() -> Self {
-        Self {
-            cpu_overload_threshold: 70.0,
-            memory_overload_threshold: 70.0,
-            cooldown_cpu_threshold: 0.0,
-            cooldown_duration: Duration::from_secs(30),
-            poll_interval: Duration::from_secs(2),
-            min_containers_per_function: 1,
-            max_containers_per_function: 10,
-            scale_check_interval: Duration::from_secs(1),
-            prometheus_url: "http://prometheus:9090".to_string(),
-            query_timeout: 3,
-            cache_ttl: 5,
-            max_retries: 3,
-        }
+impl AutoscalingRuntime {
+    /// Start the runtime
+    pub async fn start(&self) -> AppResult<()> {
+        self.autoscaler.start().await
     }
+
+    /// Get the autoscaler reference
+    pub fn autoscaler(&self) -> &Arc<Autoscaler> {
+        &self.autoscaler
+    }
+}
+
+/// Builder for configuring and creating the autoscaling runtime
+#[derive(Default)]
+pub struct AutoscalingRuntimeBuilder {
+    docker_compose_network_host: Option<String>,
+    scale_check_interval: Option<Duration>,
+    min_containers_per_function: Option<usize>,
+    max_containers_per_function: Option<usize>,
+    persistence_enabled: Option<bool>,
+    redis_url: Option<String>,
+    prometheus_url: Option<String>,
+    persistence_key_prefix: Option<String>,
+    persistence_batch_size: Option<usize>,
+    cpu_overload_threshold: Option<f64>,
+    memory_overload_threshold: Option<f64>,
+    cooldown_cpu_threshold: Option<f64>,
+    cooldown_duration: Option<Duration>,
 }
 
 impl AutoscalingRuntimeBuilder {
     pub fn new() -> Self {
-        Self::default()
+        Default::default()
     }
 
     pub fn cpu_overload_threshold(mut self, threshold: f64) -> Self {
-        self.cpu_overload_threshold = threshold;
+        self.cpu_overload_threshold = Some(threshold);
         self
     }
 
     pub fn memory_overload_threshold(mut self, threshold: f64) -> Self {
-        self.memory_overload_threshold = threshold;
+        self.memory_overload_threshold = Some(threshold);
         self
     }
 
     pub fn cooldown_cpu_threshold(mut self, threshold: f64) -> Self {
-        self.cooldown_cpu_threshold = threshold;
+        self.cooldown_cpu_threshold = Some(threshold);
         self
     }
 
     pub fn cooldown_duration(mut self, duration: Duration) -> Self {
-        self.cooldown_duration = duration;
+        self.cooldown_duration = Some(duration);
+        self
+    }
+
+    pub fn docker_compose_network_host(mut self, host: String) -> Self {
+        self.docker_compose_network_host = Some(host);
         self
     }
 
     pub fn scale_check_interval(mut self, interval: Duration) -> Self {
-        self.poll_interval = interval;
+        self.scale_check_interval = Some(interval);
         self
     }
 
     pub fn min_containers_per_function(mut self, min: usize) -> Self {
-        self.min_containers_per_function = min;
+        self.min_containers_per_function = Some(min);
         self
     }
 
     pub fn max_containers_per_function(mut self, max: usize) -> Self {
-        self.max_containers_per_function = max;
+        self.max_containers_per_function = Some(max);
         self
     }
 
-    pub fn prometheus_url(mut self, url: String) -> Self {
-        self.prometheus_url = url;
+    pub fn persistence_enabled(mut self, enabled: bool) -> Self {
+        self.persistence_enabled = Some(enabled);
         self
     }
 
-    pub fn build(self, docker_compose_network_host: String) -> Autoscaler {
-        let config = AutoscalerConfig {
-            monitoring: MonitoringConfig {
-                cpu_overload_threshold: self.cpu_overload_threshold,
-                memory_overload_threshold: self.memory_overload_threshold,
-                cooldown_cpu_threshold: self.cooldown_cpu_threshold,
-                cooldown_duration: self.cooldown_duration,
-                poll_interval: self.poll_interval,
-                prometheus_url: self.prometheus_url.clone(),
-            },
-            min_containers_per_function: self.min_containers_per_function,
-            max_containers_per_function: self.max_containers_per_function,
-            scale_check_interval: self.scale_check_interval,
+    pub fn redis_url(mut self, url: String) -> Self {
+        self.redis_url = Some(url);
+        self
+    }
+
+    pub fn persistence_key_prefix(mut self, prefix: String) -> Self {
+        self.persistence_key_prefix = Some(prefix);
+        self
+    }
+
+    pub fn persistence_batch_size(mut self, batch_size: usize) -> Self {
+        self.persistence_batch_size = Some(batch_size);
+        self
+    }
+
+    pub async fn build(self) -> AppResult<AutoscalingRuntime> {
+        let docker_compose_network_host = self
+            .docker_compose_network_host
+            .unwrap_or_else(|| "host.docker.internal".to_string());
+
+        let scale_check_interval = self.scale_check_interval.unwrap_or(Duration::from_secs(10));
+
+        let min_containers = self.min_containers_per_function.unwrap_or(1);
+        let max_containers = self.max_containers_per_function.unwrap_or(10);
+
+        let cpu_overload_threshold = self.cpu_overload_threshold.unwrap_or(80.0);
+        let memory_overload_threshold = self.memory_overload_threshold.unwrap_or(80.0);
+        let cooldown_cpu_threshold = self.cooldown_cpu_threshold.unwrap_or(0.0);
+        let cooldown_duration = self.cooldown_duration.unwrap_or(Duration::from_secs(60));
+
+        // Configure persistence
+        let persistence_enabled = self.persistence_enabled.unwrap_or(true);
+        let redis_url = self
+            .redis_url
+            .unwrap_or_else(|| "redis://localhost:6379".to_string());
+        let persistence_key_prefix = self
+            .persistence_key_prefix
+            .unwrap_or_else(|| "autoscaler".to_string());
+        let persistence_batch_size = self.persistence_batch_size.unwrap_or(50);
+
+        let persistence_config = PersistenceConfig {
+            enabled: persistence_enabled,
+            redis_url,
+            key_prefix: persistence_key_prefix,
+            batch_size: persistence_batch_size,
         };
 
-        let docker = Docker::connect_with_http_defaults().unwrap();
+        // Initialize Docker client
+        let docker = Docker::connect_with_http_defaults()
+            .map_err(|e| RuntimeError::System(format!("Failed to connect to Docker: {}", e)))?;
 
-        let metrics_config = MetricsConfig {
-            prometheus_url: self.prometheus_url,
-            query_timeout: Duration::from_secs(self.query_timeout),
-            cache_ttl: Duration::from_secs(self.cache_ttl),
-            max_retries: self.max_retries,
+        // Initialize metrics client
+        let metrics_config = crate::core::metrics_client::MetricsConfig {
+            prometheus_url: "http://prometheus:9090".to_string(),
+            query_timeout: Duration::from_secs(3),
+            cache_ttl: Duration::from_secs(5),
+            max_retries: 3,
         };
         let metrics_client = MetricsClient::new(metrics_config);
-        let autoscaler =
-            Autoscaler::new(docker, config, docker_compose_network_host, metrics_client);
-        autoscaler
+
+        // Initialize monitoring configuration
+        let mut monitoring = MonitoringConfig::default();
+        monitoring.cpu_overload_threshold = cpu_overload_threshold;
+        monitoring.memory_overload_threshold = memory_overload_threshold;
+        monitoring.cooldown_cpu_threshold = cooldown_cpu_threshold;
+        monitoring.poll_interval = scale_check_interval;
+        monitoring.cooldown_duration = cooldown_duration;
+        // Create autoscaler config
+        let autoscaler_config = AutoscalerConfig {
+            monitoring,
+            min_containers_per_function: min_containers,
+            max_containers_per_function: max_containers,
+            scale_check_interval,
+        };
+
+        // Create autoscaler with persistence
+        let autoscaler = Autoscaler::new(
+            docker.clone(),
+            autoscaler_config,
+            docker_compose_network_host.clone(),
+            metrics_client,
+        )
+        .with_persistence(persistence_config)?;
+
+        Ok(AutoscalingRuntime {
+            autoscaler: Arc::new(autoscaler),
+        })
     }
 }
 
@@ -121,16 +187,20 @@ impl AutoscalingRuntimeBuilder {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_builder_pattern() {
+    #[tokio::test]
+    async fn test_builder_pattern() {
         let runtime = AutoscalingRuntimeBuilder::new()
-            .cpu_overload_threshold(80.0)
-            .memory_overload_threshold(75.0)
+            .docker_compose_network_host("test-network".to_string())
             .min_containers_per_function(2)
             .max_containers_per_function(20)
-            .build("test-network".to_string());
+            .build()
+            .await
+            .unwrap();
 
         // Test that the runtime was created successfully
-        assert_eq!(runtime.get_config().monitoring.cpu_overload_threshold, 80.0);
+        assert_eq!(
+            runtime.autoscaler.get_config().min_containers_per_function,
+            2
+        );
     }
 }

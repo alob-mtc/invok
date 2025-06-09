@@ -16,6 +16,9 @@ pub enum InvokConfigError {
     #[error("The port {0} provided is invalid")]
     InvalidPort(String),
 
+    #[error("Invalid configuration value: {0}")]
+    InvalidValue(String),
+
     #[error("Environment error: {0}")]
     EnvError(#[from] env::VarError),
 }

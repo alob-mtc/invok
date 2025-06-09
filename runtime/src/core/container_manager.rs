@@ -7,16 +7,17 @@ use bollard::Docker;
 use dashmap::DashMap;
 use futures_util::future::join_all;
 use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinError;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 /// Container status enumeration
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ContainerStatus {
     /// Container is healthy and can accept new requests
     Healthy,
@@ -119,14 +120,13 @@ impl ContainerInfo {
 }
 
 /// Configuration for container monitoring
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonitoringConfig {
     pub cpu_overload_threshold: f64,
     pub memory_overload_threshold: f64,
     pub cooldown_cpu_threshold: f64,
     pub cooldown_duration: Duration,
     pub poll_interval: Duration,
-    pub prometheus_url: String,
 }
 
 impl Default for MonitoringConfig {
@@ -137,7 +137,6 @@ impl Default for MonitoringConfig {
             cooldown_cpu_threshold: 10.0,
             cooldown_duration: Duration::from_secs(30),
             poll_interval: Duration::from_secs(2),
-            prometheus_url: "http://prometheus:9090".to_string(),
         }
     }
 }
@@ -391,65 +390,78 @@ impl ContainerPool {
     pub fn get_status(&self) -> HashMap<String, Value> {
         let mut status = HashMap::new();
 
-        // Basic pool information
+        let containers_snapshot: Vec<_> = self
+            .containers
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        let total_containers = containers_snapshot.len();
+        let healthy_count = containers_snapshot
+            .iter()
+            .filter(|c| c.status == ContainerStatus::Healthy)
+            .count();
+        let overloaded_count = containers_snapshot
+            .iter()
+            .filter(|c| c.status == ContainerStatus::Overloaded)
+            .count();
+        let idle_count = containers_snapshot
+            .iter()
+            .filter(|c| c.status == ContainerStatus::Idle)
+            .count();
+
         status.insert(
             "function_name".to_string(),
             Value::String(self.function_name.clone()),
         );
-
-        let total_containers = self.containers.len();
         status.insert(
             "total_containers".to_string(),
-            Value::Number(total_containers.into()),
+            Value::Number(serde_json::Number::from(total_containers)),
         );
-
-        // Count containers by status
-        let mut healthy_count = 0;
-        let mut overloaded_count = 0;
-        let mut idle_count = 0;
-
-        for entry in self.containers.iter() {
-            let container = entry.value();
-            match container.status {
-                ContainerStatus::Healthy => healthy_count += 1,
-                ContainerStatus::Overloaded => overloaded_count += 1,
-                ContainerStatus::Idle => idle_count += 1,
-            }
-        }
-
-        // Essential status counts
         status.insert(
             "healthy_containers".to_string(),
-            Value::Number(healthy_count.into()),
+            Value::Number(serde_json::Number::from(healthy_count)),
         );
         status.insert(
             "overloaded_containers".to_string(),
-            Value::Number(overloaded_count.into()),
+            Value::Number(serde_json::Number::from(overloaded_count)),
         );
         status.insert(
             "idle_containers".to_string(),
-            Value::Number(idle_count.into()),
+            Value::Number(serde_json::Number::from(idle_count)),
         );
-
-        // Pool health metrics
-        let health_percentage = if total_containers > 0 {
-            (healthy_count as f64 / total_containers as f64) * 100.0
-        } else {
-            0.0
-        };
         status.insert(
-            "health_percentage".to_string(),
-            Value::Number(
-                serde_json::Number::from_f64(health_percentage)
-                    .unwrap_or_else(|| serde_json::Number::from(0)),
-            ),
+            "min_containers".to_string(),
+            Value::Number(serde_json::Number::from(self.min_containers)),
+        );
+        status.insert(
+            "max_containers".to_string(),
+            Value::Number(serde_json::Number::from(self.max_containers)),
         );
 
+        let containers_detail: Vec<Value> = containers_snapshot
+            .iter()
+            .map(|c| {
+                serde_json::json!({
+                    "id": c.id,
+                    "name": c.name,
+                    "port": c.container_port,
+                    "status": format!("{:?}", c.status),
+                    "last_active_ago_secs": c.last_active.elapsed().as_secs(),
+                    "idle_since_secs": c.idle_since.map(|i| i.elapsed().as_secs()),
+                })
+            })
+            .collect();
+
+        status.insert("containers".to_string(), Value::Array(containers_detail));
+
+        // Pool utilization metrics
         let capacity_utilization = if self.max_containers > 0 {
             (total_containers as f64 / self.max_containers as f64) * 100.0
         } else {
             0.0
         };
+
         status.insert(
             "capacity_utilization_percentage".to_string(),
             Value::Number(
@@ -466,6 +478,117 @@ impl ContainerPool {
         status.insert("can_scale_down".to_string(), Value::Bool(can_scale_down));
 
         status
+    }
+
+    /// Convert current pool state to persistable format
+    pub fn to_persisted_state(&self) -> crate::core::persistence::PersistedPoolState {
+        use crate::core::persistence::{PersistedContainerInfo, PersistedPoolState};
+
+        let containers: Vec<PersistedContainerInfo> = self
+            .containers
+            .iter()
+            .map(|entry| PersistedContainerInfo::from_container_info(entry.value()))
+            .collect();
+
+        PersistedPoolState {
+            function_name: self.function_name.clone(),
+            containers,
+            min_containers: self.min_containers,
+            max_containers: self.max_containers,
+            config: self.config.clone(),
+            last_updated: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64,
+        }
+    }
+
+    /// Create pool from persisted state
+    pub async fn from_persisted_state(
+        persisted: crate::core::persistence::PersistedPoolState,
+        docker: Docker,
+        network_host: String,
+        metrics_client: Arc<MetricsClient>,
+    ) -> AppResult<Self> {
+        let pool = Self {
+            function_name: persisted.function_name,
+            containers: Arc::new(DashMap::new()),
+            docker,
+            network_host,
+            config: persisted.config,
+            min_containers: persisted.min_containers,
+            max_containers: persisted.max_containers,
+            metrics_client,
+        };
+
+        // Restore containers from persisted state
+        for persisted_container in persisted.containers {
+            let container_info = persisted_container.to_container_info();
+            pool.containers
+                .insert(container_info.id.clone(), container_info);
+        }
+
+        info!(
+            "Restored pool for {} with {} containers from persisted state",
+            pool.function_name,
+            pool.containers.len()
+        );
+
+        Ok(pool)
+    }
+
+    /// Validate that containers are still running and sync with Docker reality
+    pub async fn validate_and_sync_containers(&self) -> AppResult<()> {
+        let container_ids: Vec<String> = self
+            .containers
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        let mut invalid_containers = Vec::new();
+
+        for container_id in container_ids {
+            // Check if container exists and is running
+            match self.docker.inspect_container(&container_id, None).await {
+                Ok(inspect_response) => {
+                    let is_running = inspect_response
+                        .state
+                        .as_ref()
+                        .and_then(|state| state.running)
+                        .unwrap_or(false);
+
+                    if !is_running {
+                        warn!(
+                            "Container {} for function {} is not running, removing from pool",
+                            container_id, self.function_name
+                        );
+                        invalid_containers.push(container_id);
+                    } else {
+                        debug!("Container {} validated as running", container_id);
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to inspect container {} for function {}: {}, removing from pool",
+                        container_id, self.function_name, e
+                    );
+                    invalid_containers.push(container_id);
+                }
+            }
+        }
+
+        // Remove invalid containers from pool
+        for container_id in invalid_containers {
+            self.containers.remove(&container_id);
+        }
+
+        info!(
+            "Container validation complete for {}: {} containers remain",
+            self.function_name,
+            self.containers.len()
+        );
+
+        Ok(())
     }
 }
 

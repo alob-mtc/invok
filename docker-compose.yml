@@ -40,6 +40,7 @@ services:
       COOLDOWN_CPU_THRESHOLD: "0.0"
       POLL_INTERVAL_SECS: "5"
       COOLDOWN_DURATION_SECS: "60"
+      PERSISTENCE_ENABLED: "true"
       # New monitoring configuration
       PROMETHEUS_URL: "http://prometheus:9090"
 
