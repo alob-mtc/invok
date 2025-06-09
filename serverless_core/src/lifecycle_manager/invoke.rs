@@ -1,8 +1,10 @@
+use crate::api_controller::AppState;
 use crate::db::cache::FunctionCacheRepo;
 use crate::db::function::FunctionDBRepo;
 use crate::lifecycle_manager::error::ServelessCoreError::FunctionFailedToStart;
 use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
 use crate::utils::utils::generate_hash;
+use axum::extract::State;
 use redis::aio::MultiplexedConnection;
 use runtime::core::{
     autoscaler::Autoscaler,
@@ -27,16 +29,18 @@ const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 1 * 60 * 60; // 1 hour timeout for funct
 /// * `name` - The name of the function to check.
 /// * `user_uuid` - The UUID of the user (namespace) to verify function ownership.
 pub async fn check_function_status(
-    conn: &DatabaseConnection,
-    cache_conn: &mut MultiplexedConnection,
+    state: &mut State<AppState>,
     name: &str,
     user_uuid: Uuid,
 ) -> ServelessCoreResult<()> {
-    if FunctionCacheRepo::get_function(cache_conn, name).await.is_some() {
+    if FunctionCacheRepo::get_function(&mut state.cache_conn, name)
+        .await
+        .is_some()
+    {
         return Ok(());
     }
 
-    let function = FunctionDBRepo::find_function_by_name(conn, name, user_uuid).await;
+    let function = FunctionDBRepo::find_function_by_name(&state.db_conn, name, user_uuid).await;
     if function.is_none() {
         error!("Function '{}' not found in namespace '{}'", name, user_uuid);
         return Err(ServelessCoreError::FunctionNotRegistered(format!(
@@ -46,7 +50,10 @@ pub async fn check_function_status(
     }
 
     // If the function exists in the database, add it to the cache with a TTL.
-    if let Err(e) = FunctionCacheRepo::add_function(cache_conn, name, TIMEOUT_DEFAULT_IN_SECONDS).await {
+    if let Err(e) =
+        FunctionCacheRepo::add_function(&mut state.cache_conn, name, TIMEOUT_DEFAULT_IN_SECONDS)
+            .await
+    {
         error!("Failed to cache function '{}': {}", name, e);
         return Err(ServelessCoreError::SystemError(format!(
             "Failed to cache function '{}': {}",
