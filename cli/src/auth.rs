@@ -168,6 +168,12 @@ pub fn load_session() -> Result<AuthSession, AuthError> {
 
 /// Get the path to the auth file
 fn get_auth_file_path() -> std::path::PathBuf {
+    // Check if we're running in Docker environment
+    if std::env::var("ENV").unwrap_or_default() == "DOCKER" {
+        return Path::new(".").join(AUTH_FILE);
+    }
+
+    // For native execution, use home directory
     let home_dir = dirs::home_dir().unwrap_or_else(|| Path::new(".").to_path_buf());
     home_dir.join(AUTH_FILE)
 }

@@ -1,0 +1,47 @@
+# === Stage 1: Build the CLI application ===
+FROM rust:1.85 AS builder
+
+# Set the working directory to the workspace root
+WORKDIR /usr/src/app
+
+# Copy the entire workspace source code
+COPY . .
+
+# Pre-fetch dependencies (improves caching)
+RUN cargo fetch
+
+# Build only the CLI package in release mode
+RUN cargo build --release -p cli
+
+# === Stage 2: Create a minimal runtime image ===
+FROM debian:bookworm-slim
+
+# Install CA certificates for HTTPS requests and other minimal dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user for security
+RUN useradd -m -u 1000 cliuser
+
+# Set working directory (this will be the mount point)
+WORKDIR /app
+
+# Copy the compiled CLI binary from the builder stage
+COPY --from=builder /usr/src/app/target/release/invok /usr/local/bin/invok
+
+# Ensure the binary is executable
+RUN chmod +x /usr/local/bin/invok
+
+# Switch to non-root user
+USER cliuser
+
+# Set environment variable to indicate Docker environment
+ENV ENV=DOCKER
+
+# Set the entrypoint to the invok binary
+ENTRYPOINT ["invok"]
+
+# Default command (show help if no args provided)
+CMD ["--help"] 

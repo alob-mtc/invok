@@ -1,0 +1,42 @@
+# Git
+.git
+.gitignore
+.github
+
+# Build artifacts
+target/
+**/*.rs.bk
+
+# IDE files
+.idea/
+*.swp
+*.swo
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (keep essential ones)
+*.md
+!README.md
+!DOCKER_USAGE.md
+
+# Test files
+test-deploy.sh
+
+# Environment files
+.env*
+
+# Docker files (except the ones we need)
+docker-compose.yml
+Dockerfile
+!Dockerfile.cli
+
+# Monitoring and runtime dirs
+monitoring/
+runtime/logs/
+
+# Temporary files
+*.log
+*.tmp 
