@@ -4,13 +4,33 @@ This CLI tool provides functionality to create and deploy serverless functions.
 
 ## Installation
 
-To install the CLI, clone the repository and build it using Cargo:
+### Option 1: Docker (Recommended)
+
+The easiest way to use `invok` is via Docker:
+
+```sh
+# Pull the image
+docker pull bolamigbe/invok:latest
+
+# Use it directly
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest --help
+
+# Or use the wrapper script for convenience
+chmod +x docker-wrapper.sh
+./docker-wrapper.sh --help
+```
+
+### Option 2: Build from Source
+
+To build and install locally:
 
 ```sh
 git clone <repository-url>
 cd cli
 cargo build --release
 ```
+
+For detailed Docker usage instructions, see [DOCKER_USAGE.md](../DOCKER_USAGE.md).
 
 ## Usage
 

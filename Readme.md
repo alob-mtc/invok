@@ -96,6 +96,25 @@ invok deploy -n hello-world
 # List your deployed functions
 invok list
 ```
+### Run with Docker
+
+```bash
+# Show help
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest --help
+
+# Login (auth file will be saved in current directory)
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest login -e your@email.com -p yourpassword
+
+# Create a function
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest create -n my-function -r go
+
+# List functions
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest list
+
+# Deploy a function
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest deploy -n my-function
+```
+
 
 ## Key Components
 
