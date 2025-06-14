@@ -158,7 +158,7 @@ pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
     }
 
     let _runtime = config.runtime;
-    println!("Deploying service... '{}'", name);
+    println!("🚀 Deploying service... '{}'", name);
 
     // Create ZIP archive
     let mut dest_zip = Cursor::new(Vec::new());
@@ -168,7 +168,7 @@ pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
     // Reset the cursor to the beginning of the buffer
     dest_zip.set_position(0);
 
-    println!("Zipped up the folder service... '{}'", name);
+    println!("📦 Zipped up the folder service... '{}'", name);
 
     // Try authenticated deployment first
     deploy_with_auth(name, dest_zip)?;
@@ -212,6 +212,16 @@ fn deploy_with_auth(name: &str, dest_zip: Cursor<Vec<u8>>) -> Result<String, Fun
     // Check the response
     if response.status().is_success() {
         let response_text = response.text()?;
+
+        // Generate function URL
+        let function_url = generate_function_url(name, &session.user_uuid);
+
+        // Print deployment success message with URL
+        println!("✅ Function deployed successfully!");
+        println!("📝 Function name: {}", name);
+        println!("🌐 Function URL: {}", function_url);
+        println!("🔗 You can invoke your function by making requests to the URL above");
+
         Ok(response_text)
     } else {
         let status = response.status();
@@ -224,4 +234,14 @@ fn deploy_with_auth(name: &str, dest_zip: Cursor<Vec<u8>>) -> Result<String, Fun
             status, error_text
         )))
     }
+}
+
+/// Generate the function URL for a deployed function
+fn generate_function_url(function_name: &str, user_uuid: &str) -> String {
+    format!(
+        "{}/invok/{}/{}",
+        host_manager::base_url(),
+        user_uuid,
+        function_name
+    )
 }

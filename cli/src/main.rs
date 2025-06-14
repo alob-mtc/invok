@@ -101,9 +101,14 @@ fn main() {
         }
         Some(("deploy", sub_matches)) => {
             if let Some(name) = sub_matches.get_one::<String>("name") {
-                if let Err(err) = deploy_function(name) {
-                    eprintln!("Error deploying function: {}", err);
-                    process::exit(1);
+                match deploy_function(name) {
+                    Ok(_) => {
+                        println!("🎉 Deployment completed successfully!");
+                    }
+                    Err(err) => {
+                        eprintln!("❌ Error deploying function: {}", err);
+                        process::exit(1);
+                    }
                 }
             } else {
                 eprintln!("Name parameter is required");
