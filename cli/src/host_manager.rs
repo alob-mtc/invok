@@ -10,6 +10,11 @@ const HOST_BASE: &str = "https://freeserverless.com";
 
 // const HOST_BASE: &str = "http://localhost:3000";
 
+/// Returns the base URL for the API server
+pub fn base_url() -> &'static str {
+    HOST_BASE
+}
+
 /// Generates the URL for the login endpoint
 pub fn auth_login_url() -> String {
     format!("{}/auth/login", HOST_BASE)
