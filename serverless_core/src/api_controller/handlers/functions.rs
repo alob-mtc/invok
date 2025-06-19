@@ -8,13 +8,11 @@ use crate::api_controller::AppState;
 use crate::db::function::FunctionDBRepo;
 use crate::db::models::DeployableFunction;
 use crate::lifecycle_manager::deploy::deploy_function;
-use crate::lifecycle_manager::error::ServelessCoreError::{FunctionFailedToStart, SystemError};
 use crate::lifecycle_manager::invoke::{check_function_status, start_function};
 use crate::utils::utils::make_request;
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use tracing::{error, info, warn};
-use uuid;
 
 /// Handles uploading a function as a ZIP file with authentication.
 ///
