@@ -153,12 +153,13 @@ impl AutoscalingRuntimeBuilder {
         let metrics_client = MetricsClient::new(metrics_config);
 
         // Initialize monitoring configuration
-        let mut monitoring = MonitoringConfig::default();
-        monitoring.cpu_overload_threshold = cpu_overload_threshold;
-        monitoring.memory_overload_threshold = memory_overload_threshold;
-        monitoring.cooldown_cpu_threshold = cooldown_cpu_threshold;
-        monitoring.poll_interval = scale_check_interval;
-        monitoring.cooldown_duration = cooldown_duration;
+        let monitoring = MonitoringConfig {
+            cpu_overload_threshold,
+            memory_overload_threshold,
+            cooldown_cpu_threshold,
+            poll_interval: scale_check_interval,
+            cooldown_duration,
+        };
         // Create autoscaler config
         let autoscaler_config = AutoscalerConfig {
             monitoring,
