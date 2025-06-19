@@ -6,7 +6,6 @@ use crate::shared::error::{AppResult, RuntimeError};
 use bollard::Docker;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info};
 
 /// The main autoscaling runtime
 pub struct AutoscalingRuntime {

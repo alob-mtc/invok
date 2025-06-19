@@ -2,14 +2,13 @@ use crate::core::container_manager::{ContainerPool, MonitoringConfig};
 use crate::core::metrics_client::MetricsClient;
 use crate::core::persistence::{AutoscalerPersistence, PersistenceConfig, PersistenceMetadata};
 use crate::core::runner::ContainerDetails;
-use crate::shared::error::{AppResult, RuntimeError};
-use crate::shared::utils::{random_container_name, random_port};
+use crate::shared::error::AppResult;
 use bollard::Docker;
 use dashmap::DashMap;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::{interval, sleep};
+use tokio::time::interval;
 use tracing::{debug, error, info, warn};
 
 /// Autoscaler configuration

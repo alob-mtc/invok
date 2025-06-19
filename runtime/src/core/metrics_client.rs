@@ -1,11 +1,11 @@
 use crate::shared::error::{AppResult, RuntimeError};
 use dashmap::DashMap;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 #[derive(Debug, Deserialize)]
 struct PrometheusResponse {

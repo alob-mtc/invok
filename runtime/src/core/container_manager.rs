@@ -1,8 +1,7 @@
-use crate::core::metrics_client::{MetricsClient, MetricsConfig};
+use crate::core::metrics_client::MetricsClient;
 use crate::core::runner::{clean_up, runner, ContainerDetails};
-use crate::shared::error::{AppResult, RuntimeError};
+use crate::shared::error::AppResult;
 use crate::shared::utils::{random_container_name, random_port};
-use bollard::container::{RemoveContainerOptions, StatsOptions};
 use bollard::Docker;
 use dashmap::DashMap;
 use futures_util::future::join_all;
@@ -10,10 +9,9 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinError;
-use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 /// Container status enumeration
