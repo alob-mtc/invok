@@ -324,7 +324,7 @@ impl AutoscalerPersistence {
                 .iter()
                 .map(|function_key| {
                     let function_key = function_key.clone();
-                    let persistence = &*self;
+                    let persistence = self;
                     async move {
                         match persistence.load_pool_state(&function_key).await {
                             Ok(Some(pool_state)) => Some((function_key, pool_state)),

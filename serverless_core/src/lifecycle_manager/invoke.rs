@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
 
-const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 1 * 60 * 60; // 1 hour timeout for function cache
+const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 60 * 60; // 1 hour timeout for function cache
 
 /// Checks if a function is registered in the database.
 ///

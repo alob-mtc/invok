@@ -206,7 +206,7 @@ impl ContainerPool {
         let container_info = ContainerInfo::new(
             container_id.clone(),
             container_details.container_name.clone(),
-            container_details.container_port.clone(),
+            container_details.container_port,
         );
 
         self.containers
