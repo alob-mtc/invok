@@ -310,7 +310,7 @@ impl ContainerPool {
                     "No healthy containers available for {}, using overloaded container",
                     self.function_name
                 );
-                return Some(toContainerDetails(&overloaded[0]));
+                return Some(to_container_details(&overloaded[0]));
             }
             return None;
         }
@@ -318,7 +318,7 @@ impl ContainerPool {
         // Sort by last active time (oldest first for round-robin)
         healthy_containers.sort_by(|a, b| a.last_active.cmp(&b.last_active));
 
-        Some(toContainerDetails(&healthy_containers[0]))
+        Some(to_container_details(&healthy_containers[0]))
     }
 
     /// Mark a container as active (just handled a request)
@@ -632,7 +632,7 @@ async fn update_container_resources(
     Ok(())
 }
 
-fn toContainerDetails(container_info: &ContainerInfo) -> ContainerDetails {
+fn to_container_details(container_info: &ContainerInfo) -> ContainerDetails {
     ContainerDetails {
         container_id: container_info.id.clone(),
         container_port: container_info.container_port,
