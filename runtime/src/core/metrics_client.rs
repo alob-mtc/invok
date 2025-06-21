@@ -2,7 +2,6 @@ use crate::shared::error::{AppResult, RuntimeError};
 use dashmap::DashMap;
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::sleep;
 use tracing::{debug, warn};
@@ -15,14 +14,11 @@ struct PrometheusResponse {
 
 #[derive(Debug, Deserialize)]
 struct PrometheusData {
-    #[serde(rename = "resultType")]
-    result_type: String,
     result: Vec<PrometheusResult>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PrometheusResult {
-    metric: HashMap<String, String>,
     value: (f64, String), // [timestamp, value]
 }
 

@@ -33,7 +33,6 @@ pub struct AutoscalingRuntimeBuilder {
     max_containers_per_function: Option<usize>,
     persistence_enabled: Option<bool>,
     redis_url: Option<String>,
-    prometheus_url: Option<String>,
     persistence_key_prefix: Option<String>,
     persistence_batch_size: Option<usize>,
     cpu_overload_threshold: Option<f64>,

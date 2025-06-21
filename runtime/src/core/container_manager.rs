@@ -5,7 +5,6 @@ use crate::shared::utils::{random_container_name, random_port};
 use bollard::Docker;
 use dashmap::DashMap;
 use futures_util::future::join_all;
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
