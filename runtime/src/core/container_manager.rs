@@ -1,19 +1,16 @@
-use crate::core::metrics_client::{MetricsClient, MetricsConfig};
+use crate::core::metrics_client::MetricsClient;
 use crate::core::runner::{clean_up, runner, ContainerDetails};
-use crate::shared::error::{AppResult, RuntimeError};
+use crate::shared::error::AppResult;
 use crate::shared::utils::{random_container_name, random_port};
-use bollard::container::{RemoveContainerOptions, StatsOptions};
 use bollard::Docker;
 use dashmap::DashMap;
 use futures_util::future::join_all;
-use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::task::JoinError;
-use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 /// Container status enumeration
@@ -208,7 +205,7 @@ impl ContainerPool {
         let container_info = ContainerInfo::new(
             container_id.clone(),
             container_details.container_name.clone(),
-            container_details.container_port.clone(),
+            container_details.container_port,
         );
 
         self.containers
@@ -312,7 +309,7 @@ impl ContainerPool {
                     "No healthy containers available for {}, using overloaded container",
                     self.function_name
                 );
-                return Some(toContainerDetails(&overloaded[0]));
+                return Some(to_container_details(&overloaded[0]));
             }
             return None;
         }
@@ -320,7 +317,7 @@ impl ContainerPool {
         // Sort by last active time (oldest first for round-robin)
         healthy_containers.sort_by(|a, b| a.last_active.cmp(&b.last_active));
 
-        Some(toContainerDetails(&healthy_containers[0]))
+        Some(to_container_details(&healthy_containers[0]))
     }
 
     /// Mark a container as active (just handled a request)
@@ -634,7 +631,7 @@ async fn update_container_resources(
     Ok(())
 }
 
-fn toContainerDetails(container_info: &ContainerInfo) -> ContainerDetails {
+fn to_container_details(container_info: &ContainerInfo) -> ContainerDetails {
     ContainerDetails {
         container_id: container_info.id.clone(),
         container_port: container_info.container_port,

@@ -5,8 +5,6 @@ use axum::http::{
 };
 use axum::response::IntoResponse;
 use hyper::body::to_bytes;
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
 use reqwest::header::HeaderMap as ReqwestHeaderMap;
 use reqwest::Client;
 use reqwest::StatusCode as ReqwestStatusCode;

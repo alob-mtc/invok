@@ -15,7 +15,7 @@ const DOCKER_HOST_ENV_VARIABLE: &str = "DOCKER_HOST";
 const DEFAULT_PORT_VALUE: u16 = 3000;
 
 /// Default host to bind to if not configured
-const DEFAULT_HOST_VALUE: &'static str = "0.0.0.0";
+const DEFAULT_HOST_VALUE: &str = "0.0.0.0";
 
 /// Server configuration
 #[derive(Debug, Clone)]

@@ -5,18 +5,12 @@ use crate::lifecycle_manager::error::ServelessCoreError::FunctionFailedToStart;
 use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
 use crate::utils::utils::generate_hash;
 use axum::extract::State;
-use redis::aio::MultiplexedConnection;
-use runtime::core::{
-    autoscaler::Autoscaler,
-    runner::{runner, ContainerDetails},
-};
-use runtime::shared::utils::{random_container_name, random_port};
-use sea_orm::DatabaseConnection;
+use runtime::core::autoscaler::Autoscaler;
 use std::sync::Arc;
 use tracing::{error, info};
 use uuid::Uuid;
 
-const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 1 * 60 * 60; // 1 hour timeout for function cache
+const TIMEOUT_DEFAULT_IN_SECONDS: u64 = 60 * 60; // 1 hour timeout for function cache
 
 /// Checks if a function is registered in the database.
 ///

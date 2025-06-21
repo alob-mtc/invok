@@ -6,7 +6,7 @@ The Invok serverless platform features an advanced container autoscaling system 
 
 The autoscaling system automatically manages container instances for serverless functions based on:
 - **CPU Usage**: Scales up when containers exceed CPU thresholds
-- **Memory Usage**: Monitors memory consumption for scaling decisions  
+- **Memory Usage**: Monitors memory consumption for scaling decisions
 - **Request Load**: Tracks container activity and idle time
 - **Cooldown Periods**: Prevents rapid scaling oscillations
 
@@ -137,13 +137,13 @@ A function scales up when **ALL** containers are overloaded:
 ```rust
 pub fn needs_scale_up(&self) -> bool {
     let containers = self.containers.read().unwrap();
-    
+
     if containers.len() >= self.max_containers {
         return false;  // At capacity
     }
-    
+
     // Scale up if ALL containers are overloaded
-    !containers.is_empty() && 
+    !containers.is_empty() &&
     containers.iter().all(|c| c.status == ContainerStatus::Overloaded)
 }
 ```
@@ -162,11 +162,11 @@ Containers scale down when idle for the cooldown period:
 ```rust
 pub fn get_scaledown_candidates(&self) -> Vec<String> {
     let containers = self.containers.read().unwrap();
-    
+
     if containers.len() <= self.min_containers {
         return Vec::new();  // At minimum
     }
-    
+
     containers.iter()
         .filter(|c| c.is_eligible_for_scaledown(self.config.cooldown_duration))
         .map(|c| c.id.clone())
@@ -195,7 +195,7 @@ rate(container_cpu_usage_seconds_total{id=~"/docker/CONTAINER_ID.*"}[30s]) * 100
 
 **Memory Usage Percentage:**
 ```promql
-(container_memory_usage_bytes{id=~"/docker/CONTAINER_ID.*"} / 
+(container_memory_usage_bytes{id=~"/docker/CONTAINER_ID.*"} /
  container_spec_memory_limit_bytes{id=~"/docker/CONTAINER_ID.*"}) * 100
 ```
 
@@ -224,9 +224,9 @@ pub enum ContainerStatus {
 │ Healthy │──────────────────────────▶│ Overloaded │
 │         │◀──────────────────────────│            │
 └─────────┘   CPU/Memory < Threshold  └────────────┘
-     │                                       
-     │ CPU < Cooldown Threshold               
-     ▼                                       
+     │
+     │ CPU < Cooldown Threshold
+     ▼
 ┌─────────┐   Recent Activity         ┌────────────┐
 │  Idle   │──────────────────────────▶│  Healthy   │
 │         │                           │            │
@@ -240,23 +240,23 @@ The autoscaler selects the healthiest container for requests:
 ```rust
 pub fn get_healthiest_container(&self) -> Option<ContainerDetails> {
     let containers = self.containers.read().unwrap();
-    
+
     // 1. Filter healthy/idle containers
     let mut healthy_containers: Vec<&ContainerInfo> = containers
         .iter()
-        .filter(|c| c.status == ContainerStatus::Healthy || 
+        .filter(|c| c.status == ContainerStatus::Healthy ||
                    c.status == ContainerStatus::Idle)
         .collect();
-    
+
     // 2. Sort by CPU usage (ascending) and last active time
     healthy_containers.sort_by(|a, b| {
         a.cpu_usage.partial_cmp(&b.cpu_usage)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| a.last_active.cmp(&b.last_active))
     });
-    
+
     // 3. Return least loaded container
-    healthy_containers.first().map(|c| toContainerDetails(c))
+    healthy_containers.first().map(|c| to_container_details(c))
 }
 ```
 

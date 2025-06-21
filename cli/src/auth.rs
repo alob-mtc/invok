@@ -13,16 +13,16 @@ const AUTH_FILE: &str = ".serverless-cli-auth";
 #[derive(Debug, Error)]
 pub enum AuthError {
     #[error("Network error: {0}")]
-    NetworkError(#[from] reqwest::Error),
+    Network(#[from] reqwest::Error),
 
     #[error("IO error: {0}")]
-    IoError(#[from] io::Error),
+    Io(#[from] io::Error),
 
     #[error("JSON error: {0}")]
-    JsonError(#[from] serde_json::Error),
+    Json(#[from] serde_json::Error),
 
     #[error("Authentication error: {0}")]
-    AuthenticationError(String),
+    Authentication(String),
 }
 
 /// User credentials for login/registration
@@ -78,7 +78,7 @@ pub fn register(email: &str, password: &str) -> Result<AuthSession, AuthError> {
 
     if !response.status().is_success() {
         let error_text = response.text()?;
-        return Err(AuthError::AuthenticationError(error_text));
+        return Err(AuthError::Authentication(error_text));
     }
 
     let auth_response: AuthResponse = response.json()?;
@@ -119,7 +119,7 @@ pub fn login(email: &str, password: &str) -> Result<AuthSession, AuthError> {
 
     if !response.status().is_success() {
         let error_text = response.text()?;
-        return Err(AuthError::AuthenticationError(error_text));
+        return Err(AuthError::Authentication(error_text));
     }
 
     let auth_response: AuthResponse = response.json()?;
@@ -152,7 +152,7 @@ pub fn load_session() -> Result<AuthSession, AuthError> {
     let auth_file_path = get_auth_file_path();
 
     if !auth_file_path.exists() {
-        return Err(AuthError::AuthenticationError(
+        return Err(AuthError::Authentication(
             "Not logged in. Please run 'cli login' first.".to_string(),
         ));
     }

@@ -40,19 +40,19 @@ pub struct AppState {
 #[derive(Debug, Error)]
 pub enum InvokAppError {
     #[error("Configuration error: {0}")]
-    ConfigError(#[from] InvokConfigError),
+    Config(#[from] InvokConfigError),
 
     #[error("Redis connection error: {0}")]
-    RedisError(#[from] redis::RedisError),
+    Redis(#[from] redis::RedisError),
 
     #[error("Database connection error: {0}")]
-    DatabaseError(#[from] sea_orm::DbErr),
+    Database(#[from] sea_orm::DbErr),
 
     #[error("Server error: {0}")]
-    ServerError(#[from] std::io::Error),
+    Server(#[from] std::io::Error),
 
     #[error("HTTP server error: {0}")]
-    HttpError(#[from] hyper::Error),
+    Http(#[from] hyper::Error),
 }
 
 /// Starts the server and sets up the necessary connections and routes.
@@ -111,7 +111,7 @@ pub async fn start_server() -> Result<(), InvokAppError> {
         .await
         .map_err(|e| {
             error!("Failed to build autoscaling runtime: {}", e);
-            InvokAppError::ConfigError(InvokConfigError::InvalidValue(format!(
+            InvokAppError::Config(InvokConfigError::InvalidValue(format!(
                 "Runtime build error: {}",
                 e
             )))
@@ -120,7 +120,7 @@ pub async fn start_server() -> Result<(), InvokAppError> {
     // Start runtime
     runtime.start().await.map_err(|e| {
         error!("Failed to start autoscaling runtime: {}", e);
-        InvokAppError::ConfigError(InvokConfigError::InvalidValue(format!(
+        InvokAppError::Config(InvokConfigError::InvalidValue(format!(
             "Runtime start error: {}",
             e
         )))

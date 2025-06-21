@@ -194,7 +194,7 @@ impl AutoscalerPersistence {
             RuntimeError::SerializationError(format!("Failed to serialize pool state: {}", e))
         })?;
 
-        conn.set(&key, &serialized).await.map_err(|e| {
+        conn.set::<_, _, ()>(&key, &serialized).await.map_err(|e| {
             error!(
                 "Failed to save pool state for {} to Redis: {}",
                 function_key, e
@@ -203,13 +203,15 @@ impl AutoscalerPersistence {
         })?;
 
         // Set expiration (24 hours)
-        conn.expire(&key, 24 * 60 * 60).await.map_err(|e| {
-            warn!(
-                "Failed to set expiration on pool state for {}: {}",
-                function_key, e
-            );
-            RuntimeError::RedisError(format!("Failed to set expiration: {}", e))
-        })?;
+        conn.expire::<_, ()>(&key, 24 * 60 * 60)
+            .await
+            .map_err(|e| {
+                warn!(
+                    "Failed to set expiration on pool state for {}: {}",
+                    function_key, e
+                );
+                RuntimeError::RedisError(format!("Failed to set expiration: {}", e))
+            })?;
 
         debug!(
             "Saved pool state for {} with {} containers",
@@ -324,7 +326,7 @@ impl AutoscalerPersistence {
                 .iter()
                 .map(|function_key| {
                     let function_key = function_key.clone();
-                    let persistence = &*self;
+                    let persistence = self;
                     async move {
                         match persistence.load_pool_state(&function_key).await {
                             Ok(Some(pool_state)) => Some((function_key, pool_state)),
@@ -372,7 +374,7 @@ impl AutoscalerPersistence {
         let mut conn = self.get_connection().await?;
         let key = self.pool_key(function_key);
 
-        conn.del(&key).await.map_err(|e| {
+        conn.del::<_, ()>(&key).await.map_err(|e| {
             error!("Failed to delete pool state for {}: {}", function_key, e);
             RuntimeError::RedisError(format!("Failed to delete pool state: {}", e))
         })?;
@@ -428,16 +430,18 @@ impl AutoscalerPersistence {
             RuntimeError::SerializationError(format!("Failed to serialize metadata: {}", e))
         })?;
 
-        conn.set(&key, &serialized).await.map_err(|e| {
+        conn.set::<_, _, ()>(&key, &serialized).await.map_err(|e| {
             error!("Failed to save metadata to Redis: {}", e);
             RuntimeError::RedisError(format!("Failed to save metadata: {}", e))
         })?;
 
         // Set expiration (24 hours)
-        conn.expire(&key, 24 * 60 * 60).await.map_err(|e| {
-            warn!("Failed to set expiration on metadata: {}", e);
-            RuntimeError::RedisError(format!("Failed to set expiration: {}", e))
-        })?;
+        conn.expire::<_, ()>(&key, 24 * 60 * 60)
+            .await
+            .map_err(|e| {
+                warn!("Failed to set expiration on metadata: {}", e);
+                RuntimeError::RedisError(format!("Failed to set expiration: {}", e))
+            })?;
 
         debug!("Saved persistence metadata");
         Ok(())
