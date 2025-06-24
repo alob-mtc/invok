@@ -76,5 +76,5 @@ fn create_global_config_file(name: &str, runtime: &str) -> io::Result<()> {
 pub fn init_go_mod(function_name: &str) -> std::io::Result<()> {
     println!("Initializing go mod...");
     let mut mod_file = File::create(format!("{}/go.mod", function_name))?;
-    mod_file.write_all(shared_utils::template::FUNCTION_MODULE_TEMPLATE.as_bytes())
+    mod_file.write_all(templates::go_template::FUNCTION_MODULE_TEMPLATE.as_bytes())
 }

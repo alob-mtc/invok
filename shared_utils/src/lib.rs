@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use tar::{Builder, Header};
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
-pub mod template;
 
 pub fn to_camel_case_handler(input: &str) -> String {
     let mut result = String::new();

@@ -705,6 +705,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shared_utils",
+ "templates",
  "thiserror 1.0.69",
 ]
 
@@ -3200,6 +3201,7 @@ dependencies = [
  "serde_json",
  "shared_utils",
  "tempfile",
+ "templates",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -3711,6 +3713,14 @@ dependencies = [
  "once_cell",
  "rustix 1.0.5",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "templates"
+version = "0.1.0"
+dependencies = [
+ "tar",
+ "zip",
 ]
 
 [[package]]

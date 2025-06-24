@@ -1,12 +1,12 @@
 use db_entities::function::Model as FunctionModel;
 use runtime::core::provisioning::provisioning;
 use sea_orm::DatabaseConnection;
-use shared_utils::template::{DOCKERFILE_TEMPLATE, MAIN_TEMPLATE};
 use shared_utils::{extract_zip_from_cursor, find_file_in_path, to_camel_case_handler};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
+use templates::go_template::{DOCKERFILE_TEMPLATE, MAIN_TEMPLATE};
 use tracing::{error, info};
 
 use crate::db::function::FunctionDBRepo;

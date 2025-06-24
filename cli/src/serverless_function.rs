@@ -5,11 +5,12 @@ use crate::utils::{create_fn_project_file, init_go_mod, GlobalConfig};
 use reqwest::blocking::{multipart, Client};
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde_json::Value;
-use shared_utils::{compress_dir_with_excludes, template::ROUTES_TEMPLATE, to_camel_case_handler};
+use shared_utils::{compress_dir_with_excludes, to_camel_case_handler};
 use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
 use std::path::Path;
 use std::time::Duration;
+use templates::go_template::ROUTES_TEMPLATE;
 use thiserror::Error;
 
 // Constants

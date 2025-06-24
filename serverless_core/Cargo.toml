@@ -29,6 +29,7 @@ db_entities = { path = "../db_entities" }
 runtime = { path = "../runtime" }
 reqwest = { version = "0.11", features = ["json", "stream"] }
 shared_utils = { path = "../shared_utils" }
+templates={path = "../templates"}
 rand = "0.8.5"
 http = "0.2.11"
 tempfile = "3.15.0"
