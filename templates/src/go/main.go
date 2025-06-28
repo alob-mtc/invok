@@ -9,6 +9,7 @@ import (
     "os/signal"
     "syscall"
     "time"
+    "fmt"
 
     "github.com/gorilla/mux"
 )
@@ -41,6 +42,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error starting listener: %v", err)
 	}
+    // signal process fully started
+    fmt.Println("<<READY_TO_ACCEPT_CONN>>")
 
 	// 6. Start the server in a separate goroutine.
 	go func() {

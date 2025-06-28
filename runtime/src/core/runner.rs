@@ -11,10 +11,13 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tokio::spawn;
+use tokio::sync::oneshot;
 
 const BYTES_IN_MB: i64 = 1024 * 1024; // 1 MB in bytes
 const SIZE_256_MB: i64 = 256 * BYTES_IN_MB; // 256 MB in bytes
 const NUM_CPUS: f64 = 2.0;
+const FULL_START_MSG: &str = "<<READY_TO_ACCEPT_CONN>>";
+const STARTUP_TIMEOUT_S: u64 = 1;
 #[derive(Debug, Clone)]
 pub struct ContainerDetails {
     pub container_id: String,
@@ -137,12 +140,20 @@ pub async fn runner(
         .await
         .map_err(|e| RuntimeError::System(format!("Failed to attach to container: {e}")))?;
 
+    let (tx, rx) = oneshot::channel();
     // Spawn a task to handle the container's output.
     spawn(async move {
+        let mut tx = Some(tx);
         while let Some(Ok(log_out)) = output.next().await {
             let bytes = log_out.into_bytes();
             let text = String::from_utf8_lossy(&bytes);
             println!("Container STDOUT: >>> {text}");
+            // Check for startup signal
+            if text.contains(FULL_START_MSG) {
+                if let Some(sender) = tx.take() {
+                    let _ = sender.send(());
+                }
+            }
         }
     });
 
@@ -168,6 +179,10 @@ pub async fn runner(
                 Err(e) => eprintln!("Failed to monitor child process: {e}"),
             }
         });
+    }
+
+    if let Err(_) = tokio::time::timeout(Duration::from_secs(STARTUP_TIMEOUT_S), rx).await {
+        println!("Container startup timeout after {STARTUP_TIMEOUT_S} s");
     }
 
     Ok(container_id)

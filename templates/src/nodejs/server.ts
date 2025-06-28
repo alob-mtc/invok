@@ -58,6 +58,8 @@ const start = async (): Promise<void> => {
     const host = env['HOST'] || '0.0.0.0';
 
     await server.listen({ port: Number(port), host });
+    // signal process fully started
+    console.log("<<READY_TO_ACCEPT_CONN>>")
 
     server.log.info(`Server listening on http://${host}:${port}`);
   } catch (err) {
