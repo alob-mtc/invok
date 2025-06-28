@@ -32,7 +32,13 @@ pub fn create_fn_project_file(name: &str, runtime: &str) -> io::Result<File> {
     fs::create_dir(path)?;
     create_fn_config(name, runtime)?;
 
-    let routes_file_path = path.join("function.go");
+    let function_file = match runtime {
+        "go" => "function.go",
+        "nodejs" => "function.ts",
+        _ => "",
+    };
+
+    let routes_file_path = path.join(function_file);
     let routes_file = File::create(&routes_file_path)?;
 
     Ok(routes_file)
@@ -73,8 +79,25 @@ fn create_global_config_file(name: &str, runtime: &str) -> io::Result<()> {
     }
 }
 
-pub fn init_go_mod(function_name: &str) -> std::io::Result<()> {
-    println!("Initializing go mod...");
-    let mut mod_file = File::create(format!("{}/go.mod", function_name))?;
-    mod_file.write_all(shared_utils::template::FUNCTION_MODULE_TEMPLATE.as_bytes())
+pub fn init_function_module(function_name: &str, runtime: &str) -> io::Result<()> {
+    match runtime.to_lowercase().as_str() {
+        "go" => {
+            println!("Initializing go mod...");
+            let mut mod_file = File::create(format!("{}/go.mod", function_name))?;
+            mod_file.write_all(templates::go_template::FUNCTION_MODULE_TEMPLATE.as_bytes())
+        }
+        "nodejs" => {
+            println!("Initializing package.json and tsconfig.json...");
+            let mut package_file = File::create(format!("{}/package.json", function_name))?;
+            package_file.write_all(templates::nodejs_template::PACKAGE_JSON_TEMPLATE.as_bytes())?;
+            let mut tsconfig_file = File::create(format!("{}/tsconfig.json", function_name))?;
+            tsconfig_file.write_all(templates::nodejs_template::TS_CONFIG_TEMPLATE.as_bytes())?;
+            let mut ignore_file = File::create(format!("{}/.gitignore", function_name))?;
+            ignore_file.write_all(templates::nodejs_template::GIT_IGNORE_TEMPLATE.as_bytes())
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Unsupported runtime: {}", runtime),
+        )),
+    }
 }

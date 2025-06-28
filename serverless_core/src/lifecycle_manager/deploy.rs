@@ -1,18 +1,17 @@
+use crate::db::function::FunctionDBRepo;
+use crate::db::models::{DeployableFunction, DeployableFunctionConfig};
+use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
+use crate::utils::utils::{create_fn_files_base, envs_to_string, generate_hash};
 use db_entities::function::Model as FunctionModel;
 use runtime::core::provisioning::provisioning;
 use sea_orm::DatabaseConnection;
-use shared_utils::template::{DOCKERFILE_TEMPLATE, MAIN_TEMPLATE};
 use shared_utils::{extract_zip_from_cursor, find_file_in_path, to_camel_case_handler};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Cursor, Write};
 use std::path::PathBuf;
+use templates::{go_template, nodejs_template};
 use tracing::{error, info};
-
-use crate::db::function::FunctionDBRepo;
-use crate::db::models::{DeployableFunction, DeployableFunctionConfig};
-use crate::lifecycle_manager::error::{ServelessCoreError, ServelessCoreResult};
-use crate::utils::utils::{create_fn_files_base, envs_to_string, generate_hash};
 
 /// Creates a function file structure and extracts its configuration.
 ///
@@ -35,33 +34,13 @@ use crate::utils::utils::{create_fn_files_base, envs_to_string, generate_hash};
 /// - The path to the function files.
 async fn create_function(
     name: &str,
-    runtime: &str,
     function_content: Vec<u8>,
-) -> ServelessCoreResult<(Option<HashMap<String, String>>, PathBuf)> {
+) -> ServelessCoreResult<(Option<HashMap<String, String>>, PathBuf, String)> {
     // Create a temporary directory for this function.
     let temp_dir = tempfile::tempdir()
         .map_err(|e| ServelessCoreError::SystemError(format!("Failed to create temp dir: {e}")))?
         .into_path()
         .join(name);
-
-    // Convert function name into a CamelCase handler name.
-    let handler_name = to_camel_case_handler(name);
-
-    // Create the base function file (e.g., main.go) using the provided template.
-    let file = create_fn_files_base(&temp_dir, name, runtime)
-        .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
-    let mut file_writer = std::io::BufWriter::new(file);
-    file_writer
-        .write_all(
-            MAIN_TEMPLATE
-                .replace("{{ROUTE}}", name)
-                .replace("{{HANDLER}}", &handler_name)
-                .as_bytes(),
-        )
-        .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
-    file_writer
-        .flush()
-        .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
 
     // Extract the function ZIP content from an in-memory buffer.
     let buffer = Cursor::new(function_content);
@@ -77,7 +56,39 @@ async fn create_function(
     let mut config: DeployableFunctionConfig = serde_json::from_str(&config_content)
         .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
 
-    Ok((config.env.take(), temp_dir))
+    // Convert function name into a CamelCase handler name.
+    let handler_name = to_camel_case_handler(name);
+    let runtime = config.runtime;
+
+    // Create the base function file (e.g., main.go) using the provided template.
+    let file = create_fn_files_base(&temp_dir, &runtime)
+        .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
+    let mut file_writer = std::io::BufWriter::new(file);
+
+    match runtime.as_str() {
+        "go" => {
+            file_writer
+                .write_all(
+                    go_template::MAIN_TEMPLATE
+                        .replace("{{ROUTE}}", name)
+                        .replace("{{HANDLER}}", &handler_name)
+                        .as_bytes(),
+                )
+                .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
+        }
+        "nodejs" => {
+            file_writer
+                .write_all(nodejs_template::SERVER_TEMPLATE.as_bytes())
+                .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
+        }
+        _ => {}
+    };
+
+    file_writer
+        .flush()
+        .map_err(|e| ServelessCoreError::SystemError(e.to_string()))?;
+
+    Ok((config.env.take(), temp_dir, runtime.clone()))
 }
 
 /// Provisions a Docker container for the function using the provided configuration.
@@ -96,12 +107,17 @@ async fn create_function(
 ///
 /// A result indicating success or failure.
 async fn provision_docker(
+    runtime: &str,
     path: PathBuf,
     name: &str,
     envs: HashMap<String, String>,
 ) -> ServelessCoreResult<()> {
-    let mut dockerfile_content = DOCKERFILE_TEMPLATE.replace("{{FUNCTION}}", name);
-    dockerfile_content = dockerfile_content.replace("{{ENV}}", &envs_to_string(envs));
+    let docker_file = match runtime {
+        "go" => go_template::DOCKERFILE_TEMPLATE,
+        "nodejs" => nodejs_template::DOCKERFILE_TEMPLATE,
+        _ => "",
+    };
+    let dockerfile_content = docker_file.replace("{{ENV}}", &envs_to_string(envs));
 
     provisioning(&path, name, &dockerfile_content)
         .await
@@ -131,12 +147,11 @@ pub async fn deploy_function(
     function: DeployableFunction,
 ) -> ServelessCoreResult<String> {
     let name = function.name;
-    let runtime = function.runtime;
     let content = function.content;
     let user_uuid = function.user_uuid;
 
     // Create the function files and extract configuration.
-    let (envs, path) = create_function(&name, &runtime, content).await?;
+    let (envs, path, runtime) = create_function(&name, content).await?;
     // Ensure environment variables are available.
     let envs = envs.ok_or_else(|| {
         ServelessCoreError::BadFunction("Missing environment configuration in function".to_string())
@@ -144,7 +159,7 @@ pub async fn deploy_function(
     // Build the function Docker image.
     let uuid_short = generate_hash(user_uuid);
     let function_image_name = format!("{name}-{uuid_short}");
-    provision_docker(path, &function_image_name, envs).await?;
+    provision_docker(&runtime, path, &function_image_name, envs).await?;
 
     // Register the function in the database if it's not already registered.
     if FunctionDBRepo::find_function_by_name(conn, &name, user_uuid)

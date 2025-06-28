@@ -1,5 +1,3 @@
-// TEMPLATE
-pub const MAIN_TEMPLATE: &str = r#"
 package main
 
 import (
@@ -11,6 +9,7 @@ import (
     "os/signal"
     "syscall"
     "time"
+    "fmt"
 
     "github.com/gorilla/mux"
 )
@@ -43,6 +42,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error starting listener: %v", err)
 	}
+    // signal process fully started
+    fmt.Println("<<READY_TO_ACCEPT_CONN>>")
 
 	// 6. Start the server in a separate goroutine.
 	go func() {
@@ -76,68 +77,3 @@ func main() {
 
 	log.Println("Server exited gracefully.")
 }
-"#;
-
-pub const ROUTES_TEMPLATE: &str = r#"
-package main
-
-import (
-    "net/http"
-)
-
-// Handler for the "/{{ROUTE}}" endpoint.
-func {{HANDLER}}(w http.ResponseWriter, r *http.Request) {
-    // You can access query params via r.URL.Query().
-    // For example:
-    // query := r.URL.Query()
-    // name := query.Get("name")
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Hello World!"))
-}
-"#;
-
-pub const DOCKERFILE_TEMPLATE: &str = r#"
-# Stage 1: Build Stage
-FROM golang:1.23 as builder
-
-# Set the working directory inside the container
-WORKDIR /app
-
-# Copy the specific function package into the container's workspace
-# Replace {{FUNCTION}} with the actual function directory or file
-COPY . .
-
-# Initialize the Go module (if not already initialized)
-RUN go mod init serverless-function
-
-# Download dependencies early to leverage Docker cache
-RUN go mod tidy
-
-# Build the Go app
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
-
-# Stage 2: Runtime Stage
-FROM gcr.io/distroless/static-debian12
-
-# Set the working directory inside the container
-WORKDIR /app
-
-# Copy the compiled binary from the builder stage
-COPY --from=builder /app/main .
-
-# Expose port 8080
-EXPOSE 8080
-
-# Set environment variables (replace with actual environment configurations)
-{{ENV}}
-
-# Command to run the application
-CMD ["./main"]
-"#;
-
-pub const FUNCTION_MODULE_TEMPLATE: &str = r#"
-module serverless-function
-
-go 1.23
-"#;

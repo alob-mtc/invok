@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use tar::{Builder, Header};
 use zip::write::FileOptions;
 use zip::{ZipArchive, ZipWriter};
-pub mod template;
 
 pub fn to_camel_case_handler(input: &str) -> String {
     let mut result = String::new();
@@ -63,7 +62,7 @@ fn add_dir_to_zip<W: Write + io::Seek>(
         let path = entry.path();
         let name = path.strip_prefix(base_path).unwrap().to_str().unwrap();
 
-        if path.is_dir() {
+        if path.is_dir() && !excludes.contains(&path.file_name().unwrap().to_str().unwrap()) {
             zip.add_directory(name, options)?;
             add_dir_to_zip(zip, &path, base_path, options, excludes)?;
         } else if !excludes.contains(&entry.file_name().to_str().unwrap()) {

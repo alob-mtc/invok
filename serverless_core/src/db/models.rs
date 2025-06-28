@@ -11,7 +11,6 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DeployableFunction {
     pub name: String,
-    pub runtime: String,
     pub content: Vec<u8>,
     pub user_uuid: Uuid,
 }
@@ -28,6 +27,6 @@ pub struct DeployableFunction {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DeployableFunctionConfig {
     function_name: String,
-    runtime: String,
+    pub(crate) runtime: String,
     pub(crate) env: Option<HashMap<String, String>>,
 }

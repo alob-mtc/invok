@@ -21,7 +21,7 @@ Unlike cloud provider offerings, this framework runs entirely on your infrastruc
 
 This project is currently in **proof of concept** stage. While it demonstrates the core concepts of a self-hosted serverless framework, it is not yet production-ready. Key limitations include:
 
-- Limited runtime support (currently only Go)
+- Limited runtime support (currently Go and Node.js with TypeScript)
 - Basic error handling and recovery
 - No production-grade monitoring or logging
 - Limited scalability testing
@@ -90,6 +90,9 @@ invok login --email user@example.com --password your_password
 # Create a new function (defaults to Go runtime)
 invok create -n hello-world
 
+# Create a Node.js TypeScript function
+invok create -n hello-typescript -r nodejs
+
 # Deploy your function
 invok deploy -n hello-world
 
@@ -105,8 +108,11 @@ docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest --help
 # Login (auth file will be saved in current directory)
 docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest login -e your@email.com -p yourpassword
 
-# Create a function
+# Create a Go function
 docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest create -n my-function -r go
+
+# Create a Node.js TypeScript function
+docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest create -n my-ts-function -r nodejs
 
 # List functions
 docker run --rm -v $(pwd):/app -w /app bolamigbe/invok:latest list
@@ -144,7 +150,7 @@ Functions run in isolated Docker containers with:
 
 - **Security Isolation**: Each function runs in its own container
 - **Dependency Management**: Functions include all their dependencies
-- **Runtime Support**: Currently supports Go with more runtimes planned
+- **Runtime Support**: Currently supports Go and Node.js with TypeScript
 
 ## Project Structure (core Components)
 
@@ -189,7 +195,7 @@ We welcome contributions to enhance this proof of concept! Here are some areas w
 
 ### Areas for Contribution
 
-- **New Runtimes**: Currently we support Go, but Python, Node.js, and other runtimes would be valuable additions
+- **New Runtimes**: Currently we support Go and Node.js (TypeScript), but other runtimes would be valuable additions
 - **Function Logs**: Implementing log collection and retrieval for deployed functions
 - **Metrics and Monitoring**: Adding performance measurement capabilities
 - **Testing Infrastructure**: Expanding test coverage for all components
@@ -228,7 +234,7 @@ We welcome contributions to enhance this proof of concept! Here are some areas w
 
 ## Roadmap to Production Readiness
 
-- [ ] Support for additional runtimes (Python, Node.js, etc.)
+- [ ] Support for additional runtimes
 - [ ] Function logs collection and viewing
 - [ ] Role-based access control
 - [ ] Function versioning

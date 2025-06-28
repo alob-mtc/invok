@@ -12,7 +12,7 @@ fn main() {
     let matches = Command::new("CLI")
         .version("1.0")
         .author("Akinlua Bolamigbe <bolamigbeakinlua@gmail.com>")
-        .about("A simple CLI example")
+        .about("Serverless Function Platform CLI - Create and deploy functions to the cloud")
         .subcommand(
             Command::new("create")
                 .about("Creates a new function")
@@ -29,7 +29,7 @@ fn main() {
                         .long("runtime")
                         .value_name("RUNTIME")
                         .required(false)
-                        .help("The runtime for the function"),
+                        .help("The runtime for the function (supported: go, nodejs)"),
                 ]),
         )
         .subcommand(
