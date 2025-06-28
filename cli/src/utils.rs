@@ -86,7 +86,7 @@ pub fn init_function_module(function_name: &str, runtime: &str) -> io::Result<()
             let mut mod_file = File::create(format!("{}/go.mod", function_name))?;
             mod_file.write_all(templates::go_template::FUNCTION_MODULE_TEMPLATE.as_bytes())
         }
-        "node" => {
+        "nodejs" => {
             println!("Initializing package.json and tsconfig.json...");
             let mut package_file = File::create(format!("{}/package.json", function_name))?;
             package_file.write_all(templates::nodejs_template::PACKAGE_JSON_TEMPLATE.as_bytes())?;
