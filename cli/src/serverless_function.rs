@@ -1,7 +1,7 @@
 // use crate::template::ROUTES_TEMPLATE;
 use crate::auth::{load_session, AuthError};
 use crate::host_manager;
-use crate::utils::{create_fn_project_file, init_go_mod, GlobalConfig};
+use crate::utils::{create_fn_project_file, init_function_module, GlobalConfig};
 use reqwest::blocking::{multipart, Client};
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{self, Cursor, Read, Write};
 use std::path::Path;
 use std::time::Duration;
-use templates::go_template::ROUTES_TEMPLATE;
+use templates::{go_template, nodejs_template};
 use thiserror::Error;
 
 // Constants
@@ -50,23 +50,47 @@ pub enum FunctionError {
 ///
 /// A Result indicating success or containing an error
 pub fn create_new_project(name: &str, runtime: &str) -> Result<(), FunctionError> {
-    println!("Creating service... '{name}' [RUNTIME:'{runtime}']");
-    let handler_name = to_camel_case_handler(name);
+    // Validate runtime
+    let normalized_runtime = match runtime.to_lowercase().as_str() {
+        "go" => "go",
+        "nodejs" | "node" | "typescript" | "ts" => "nodejs",
+        _ => {
+            return Err(FunctionError::CompressionError(format!(
+                "Unsupported runtime: '{}'. Supported runtimes: go, nodejs",
+                runtime
+            )))
+        }
+    };
 
+    println!("Creating service... '{name}' [RUNTIME:'{normalized_runtime}']");
     // Create project file
-    let file = create_fn_project_file(name, runtime)?;
-    let mut file = std::io::BufWriter::new(&file);
+    let file = create_fn_project_file(name, normalized_runtime)?;
+    let mut file = io::BufWriter::new(&file);
 
-    // Write template with replacements
-    file.write_all(
-        ROUTES_TEMPLATE
-            .replace("{{ROUTE}}", name)
-            .replace("{{HANDLER}}", &handler_name)
-            .as_bytes(),
-    )?;
+    match normalized_runtime {
+        "go" => {
+            let handler_name = to_camel_case_handler(name);
+            // Write template with replacements
+            file.write_all(
+                go_template::ROUTES_TEMPLATE
+                    .replace("{{ROUTE}}", name)
+                    .replace("{{HANDLER}}", &handler_name)
+                    .as_bytes(),
+            )?;
+        }
+        "nodejs" => {
+            // Write template with replacements
+            file.write_all(
+                nodejs_template::ROUTE_TEMPLATE
+                    .replace("{{ROUTE}}", name)
+                    .as_bytes(),
+            )?;
+        }
+        _ => {}
+    }
 
-    // Initialize go module
-    init_go_mod(name)?;
+    // Initialize function module
+    init_function_module(name, normalized_runtime)?;
     println!("Function created");
 
     Ok(())
@@ -158,12 +182,27 @@ pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
         return Err(FunctionError::FunctionNotFound(name.to_string()));
     }
 
-    let _runtime = config.runtime;
+    let runtime = config.runtime;
     println!("🚀 Deploying service... '{}'", name);
 
-    // Create ZIP archive
+    // Create ZIP archive with runtime-specific exclusions
     let mut dest_zip = Cursor::new(Vec::new());
-    compress_dir_with_excludes(Path::new(name), &mut dest_zip, &["go.mod", "go.sum"])
+    let exclude_files = match runtime.to_lowercase().as_str() {
+        "go" => vec!["go.mod", "go.sum", ".git", ".gitignore"],
+        "nodejs" | "node" | "typescript" | "ts" => {
+            vec![
+                "node_modules",
+                "package-lock.json",
+                ".git",
+                ".gitignore",
+                "dist",
+                "*.log",
+            ]
+        }
+        _ => vec![],
+    };
+
+    compress_dir_with_excludes(Path::new(name), &mut dest_zip, &exclude_files)
         .map_err(|e| FunctionError::CompressionError(e.to_string()))?;
 
     // Reset the cursor to the beginning of the buffer
