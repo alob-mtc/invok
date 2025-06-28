@@ -1,7 +1,6 @@
-// use crate::template::ROUTES_TEMPLATE;
 use crate::auth::{load_session, AuthError};
 use crate::host_manager;
-use crate::utils::{create_fn_project_file, init_function_module, GlobalConfig};
+use crate::utils::{create_fn_project_file, init_function_module, FuncConfig};
 use reqwest::blocking::{multipart, Client};
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -15,7 +14,7 @@ use thiserror::Error;
 
 // Constants
 const REQUEST_TIMEOUT_SECS: u64 = 120;
-const CONFIG_FILE_PATH: &str = "./config.json";
+const CONFIG_FILE_PATH: &str = "config.json";
 
 /// Errors that can occur during serverless function operations
 #[derive(Debug, Error)]
@@ -171,11 +170,11 @@ pub fn list_functions() -> Result<(), FunctionError> {
 /// A Result indicating success or containing an error
 pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
     // Read configuration file
-    let mut config_file = File::open(CONFIG_FILE_PATH)?;
+    let mut config_file = File::open(format!("{name}/{CONFIG_FILE_PATH}"))?;
     let mut contents = String::new();
     config_file.read_to_string(&mut contents)?;
 
-    let config: GlobalConfig = serde_json::from_str(&contents)?;
+    let config: FuncConfig = serde_json::from_str(&contents)?;
 
     // Validate function exists in config
     if !config.function_name.contains(&name.to_string()) {
@@ -190,14 +189,7 @@ pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
     let exclude_files = match runtime.to_lowercase().as_str() {
         "go" => vec!["go.mod", "go.sum", ".git", ".gitignore"],
         "nodejs" | "node" | "typescript" | "ts" => {
-            vec![
-                "node_modules",
-                "package-lock.json",
-                ".git",
-                ".gitignore",
-                "dist",
-                "*.log",
-            ]
+            vec!["node_modules", ".git", ".gitignore", "dist", "*.log"]
         }
         _ => vec![],
     };
@@ -210,7 +202,6 @@ pub fn deploy_function(name: &str) -> Result<(), FunctionError> {
 
     println!("📦 Zipped up the folder service... '{}'", name);
 
-    // Try authenticated deployment first
     deploy_with_auth(name, dest_zip)?;
 
     Ok(())

@@ -28,7 +28,6 @@ pub(crate) async fn upload_function(
 ) -> impl IntoResponse {
     // Get configuration from state
     let supported_archive_ext = ".zip"; // Currently we only support ZIP
-    let default_runtime = &state.config.function_config.default_runtime;
     let max_size = state.config.function_config.max_function_size;
 
     // Iterate over the fields in the multipart request.
@@ -58,7 +57,6 @@ pub(crate) async fn upload_function(
 
                 let function = DeployableFunction {
                     name: function_name.to_string(),
-                    runtime: default_runtime.clone(),
                     content: buffer,
                     user_uuid,
                 };

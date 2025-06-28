@@ -5,7 +5,6 @@ FROM golang:1.23 as builder
 WORKDIR /app
 
 # Copy the specific function package into the container's workspace
-# Replace {{FUNCTION}} with the actual function directory or file
 COPY . .
 
 # Initialize the Go module (if not already initialized)

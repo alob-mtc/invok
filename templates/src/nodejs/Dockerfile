@@ -42,7 +42,7 @@ RUN chown -R fastify:nodejs /app
 USER fastify
 
 # Expose port
-EXPOSE 3000
+EXPOSE 8080
 
 # Add health check
 #HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

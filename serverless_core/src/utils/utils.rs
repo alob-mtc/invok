@@ -235,17 +235,17 @@ pub async fn make_request(
 /// # Returns
 ///
 /// A `Result` containing the created `File` handle for `main.go` or an `std::io::Error`.
-pub fn create_fn_files_base(path: &PathBuf, name: &str, _runtime: &str) -> std::io::Result<File> {
-    if path.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            format!("Folder '{}' already exists.", name),
-        ));
+pub fn create_fn_files_base(path: &PathBuf, runtime: &str) -> std::io::Result<File> {
+    if !path.exists() {
+        fs::create_dir(path)?;
     }
 
-    fs::create_dir(path)?;
-
-    let main_file_path = path.join("main.go");
+    let function_file = match runtime {
+        "go" => "main.go",
+        "nodejs" => "server.ts",
+        _ => "",
+    };
+    let main_file_path = path.join(function_file);
     let main_file = File::create(&main_file_path)?;
 
     Ok(main_file)

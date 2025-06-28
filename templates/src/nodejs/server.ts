@@ -1,21 +1,23 @@
-import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { env } from 'node:process';
-import routes from './route';
+import routes from './function';
 
 // Server configuration
-const server: FastifyInstance = Fastify({
-  logger: {
-    level: env.LOG_LEVEL || 'info',
-    transport: env.NODE_ENV === 'development' ? {
+const server = Fastify({
+  logger: env['NODE_ENV'] === 'development' ? {
+    level: env['LOG_LEVEL'] || 'info',
+    transport: {
       target: 'pino-pretty',
       options: {
         colorize: true,
         translateTime: 'HH:MM:ss Z',
         ignore: 'pid,hostname'
       }
-    } : undefined
+    }
+  } : {
+    level: env['LOG_LEVEL'] || 'info'
   }
 });
 
@@ -35,12 +37,12 @@ const start = async (): Promise<void> => {
     });
 
     await server.register(cors, {
-      origin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',') : true,
+      origin: env['CORS_ORIGIN'] ? env['CORS_ORIGIN'].split(',') : true,
       credentials: true
     });
 
     // Register routes
-    await registerRoutes(server);
+    registerRoutes(server);
 
     // Add health check
     server.get('/health', async () => {
@@ -52,8 +54,8 @@ const start = async (): Promise<void> => {
     });
 
     // Start the server
-    const port = env.PORT || 3000;
-    const host = env.HOST || '0.0.0.0';
+    const port = env['PORT'] || 8080;
+    const host = env['HOST'] || '0.0.0.0';
 
     await server.listen({ port: Number(port), host });
 
