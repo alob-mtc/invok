@@ -306,7 +306,7 @@ fn validate_function_call_inputs(
     }
 
     // Check function name length (reasonable limits)
-    if function_name.len() > 15 {
+    if function_name.len() > 25 {
         warn!(
             namespace = %namespace,
             function = %function_name,
@@ -315,7 +315,7 @@ fn validate_function_call_inputs(
         );
         return Err((
             StatusCode::BAD_REQUEST,
-            "Function name is too long (max 15 characters)".to_string(),
+            "Function name is too long (max 25 characters)".to_string(),
         )
             .into_response());
     }
