@@ -44,6 +44,9 @@ USER fastify
 # Expose port
 EXPOSE 8080
 
+# Set environment variables (replace with actual environment configurations)
+{{ENV}}
+
 # Set environment to production
 ENV NODE_ENV=production
 
