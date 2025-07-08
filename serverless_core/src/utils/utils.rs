@@ -143,7 +143,7 @@ pub async fn make_request(
     req: AxumRequest<Body>,
 ) -> impl IntoResponse {
     let client = Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(60))
         .build()
         .expect("Failed to build HTTP client");
 
