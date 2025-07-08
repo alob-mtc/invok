@@ -611,9 +611,9 @@ async fn update_container_resources(
     // Fetch container stats
     match fetch_container_stats(&container_id, metrics_client).await {
         Ok((cpu_percentage, memory_percentage)) => {
-            info!("=============>>>>>>>>>>> Updating container {} with CPU: {:.2}%, Memory: {:.2}% (source: Prometheus)",
+            debug!("Updating container {} with CPU: {:.2}%, Memory: {:.2}% (source: Prometheus)",
                                  container.name, cpu_percentage, memory_percentage);
-            debug!("=============>>>>>>>>>>> Docker stats comparison for {}: check `docker stats --no-stream {}`",
+            debug!("Docker stats comparison for {}: check `docker stats --no-stream {}`",
                                  container.name, &container_id[0..12]);
             container.update_metrics(
                 cpu_percentage,
