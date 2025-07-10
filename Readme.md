@@ -255,7 +255,7 @@ This project is licensed under the [LICENSE](LICENSE) file in the repository.
 
 [Watch Quick Demo](https://youtu.be/qLKV_cO_XhQ?si=4lmvu8frlzH1yLNX)
 
-A demo function running on a self-hosted enviroment here [invoke-demo-home-page](https://freeserverless.com/invok/72425d41-309d-48e3-845c-ca5534a3a17c/home-page), function code [here](https://github.com/alob-mtc/invok-functions)
+A demo function running on a self-hosted environment here: [invoke-demo-home-page](https://freeserverless.com/invok/72425d41-309d-48e3-845c-ca5534a3a17c/home-page), see the function code [here](https://github.com/alob-mtc/invok-functions)
 
 ### Interactive Playground
 
@@ -271,4 +271,4 @@ The playground allows you to:
 
 Feel free to play around with the host here:
 [serverless-framework-host](https://freeserverless.com)
-deploy/host your own function and see it for yourself (try not to break the host-machine 😂 _it's a small size server for demo only_)
+deploy/host your own function and see it for yourself (try not to break the host-machine 😂 _it's a low-resource server for demo only_)
