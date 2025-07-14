@@ -1,11 +1,19 @@
 {
-    "name": "Rust Development Environment",
-    "image": "mcr.microsoft.com/devcontainers/rust:latest",
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "rust-lang.rust-analyzer"
-            ]
-        }
+  "name": "Rust + Docker Dev Environment",
+  "image": "mcr.microsoft.com/devcontainers/rust:latest",
+
+  // Add Docker CLI tools
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest"
     }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
 }
