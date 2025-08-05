@@ -12,6 +12,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tokio::spawn;
 use tokio::sync::oneshot;
+use tracing::{debug, error, info, warn};
 
 const BYTES_IN_MB: i64 = 1024 * 1024; // 1 MB in bytes
 const SIZE_256_MB: i64 = 256 * BYTES_IN_MB; // 256 MB in bytes
@@ -147,11 +148,12 @@ pub async fn runner(
         while let Some(Ok(log_out)) = output.next().await {
             let bytes = log_out.into_bytes();
             let text = String::from_utf8_lossy(&bytes);
-            println!("Container STDOUT: >>> {text}");
+            debug!("Container STDOUT: >>> {text}");
             // Check for startup signal
             if text.contains(FULL_START_MSG) {
                 if let Some(sender) = tx.take() {
                     let _ = sender.send(());
+                    break;
                 }
             }
         }
@@ -171,7 +173,7 @@ pub async fn runner(
             match monitor_container_process(&docker_clone, &container_id_clone, rx).await {
                 Ok(_) => {
                     let elapsed_time = start_time.elapsed();
-                    println!(
+                    info!(
                         "Execution took {:.2} seconds.",
                         elapsed_time.as_millis() as f64 / 1000.0
                     );
@@ -182,7 +184,7 @@ pub async fn runner(
     }
 
     if let Err(_) = tokio::time::timeout(Duration::from_secs(STARTUP_TIMEOUT_S), rx).await {
-        println!("Container startup timeout after {STARTUP_TIMEOUT_S} s");
+        warn!("Container startup timeout after {STARTUP_TIMEOUT_S} s");
     }
 
     Ok(container_id)

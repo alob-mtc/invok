@@ -10,29 +10,31 @@ name="serverless-core"
 path="src/main.rs"
 
 [dependencies]
-sea-orm = "1.1.4"
+axum = { version = "0.6.20", features = ["macros", "multipart"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+db_entities = { path = "../db_entities" }
+db_migrations = { path = "../db_migrations" }
+futures-util = "0.3.30"
+hyper = { version = "0.14", features = ["server"] }
 redis = { version = "0.28.1", features = ["tokio-comp"] }
+runtime = { path = "../runtime" }
+sea-orm = "1.1.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+shared_utils = { path = "../shared_utils" }
+thiserror = "1.0"
+tokio = "1.44.2"
+tokio-stream = "0.1"
 tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 uuid = { version = "1.7", features = ["serde", "v4"] }
 argon2 = "0.5"
 rand_core = { version = "0.6", features = ["std"] }
-axum = { version = "0.6.20", features = ["macros", "multipart"] }
-futures-util = "0.3.30"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-thiserror = "1.0"
-hyper = { version = "0.14", features = ["server"] }
 jsonwebtoken = "9.2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-db_migrations = { path = "../db_migrations" }
-db_entities = { path = "../db_entities" }
-runtime = { path = "../runtime" }
 reqwest = { version = "0.11", features = ["json", "stream"] }
-shared_utils = { path = "../shared_utils" }
-templates={path = "../templates"}
+templates = { path = "../templates" }
 rand = "0.8.5"
 http = "0.2.11"
 tempfile = "3.15.0"
 urlencoding = "2.1.3"
-tokio = "1.44.2"
 md5 = "0.7.0"

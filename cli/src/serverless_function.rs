@@ -1,6 +1,7 @@
 use crate::auth::{load_session, AuthError};
 use crate::host_manager;
 use crate::utils::{create_fn_project_file, init_function_module, FuncConfig};
+use futures_util::stream::TryStreamExt;
 use reqwest::blocking::{multipart, Client};
 use reqwest::header::{self, HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -275,4 +276,109 @@ fn generate_function_url(function_name: &str, user_uuid: &str) -> String {
         user_uuid,
         function_name
     )
+}
+
+/// Stream logs from a deployed function
+///
+/// # Arguments
+///
+/// * `name` - The name of the function to stream logs from
+///
+/// # Returns
+///
+/// A Result indicating success or containing an error
+pub fn stream_logs(name: &str) -> Result<(), FunctionError> {
+    // Load authentication session
+    let session = load_session()?;
+
+    // Build the logs URL
+    let logs_url = host_manager::function_logs_url(&session.user_uuid, name);
+
+    // Set up authorization headers
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", session.token))
+            .map_err(|_| FunctionError::CompressionError("Invalid token format".to_string()))?,
+    );
+
+    // Use minimal single-threaded runtime for streaming
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .enable_time()
+        .build()
+        .map_err(|e| FunctionError::IoError(io::Error::new(io::ErrorKind::Other, e)))?;
+
+    rt.block_on(async { stream_logs_async(&logs_url, headers).await })
+}
+
+/// Async function to handle log streaming
+async fn stream_logs_async(url: &str, headers: HeaderMap) -> Result<(), FunctionError> {
+    // Build async client
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300)) // 5 minute timeout for streaming
+        .default_headers(headers)
+        .build()
+        .map_err(|e| FunctionError::RequestError(e))?;
+
+    println!("🔍 Connecting to function logs...");
+
+    // Send request to logs endpoint
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| FunctionError::RequestError(e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
+
+        return Err(FunctionError::CompressionError(format!(
+            "Failed to connect to logs: Status code {}. {}",
+            status, error_text
+        )));
+    }
+
+    println!("📡 Connected! Streaming logs... (Press Ctrl+C to stop)\n");
+
+    // Stream the response
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = TryStreamExt::try_next(&mut stream)
+        .await
+        .map_err(|e| FunctionError::RequestError(e))?
+    {
+        let text = String::from_utf8_lossy(&chunk);
+
+        // Filter out empty lines and just print the log content
+        for line in text.lines() {
+            if !line.trim().is_empty() {
+                // Parse Server-Sent Events format if needed
+                if line.starts_with("data: ") {
+                    let log_content = &line[6..]; // Remove "data: " prefix
+                    if !log_content.trim().is_empty() {
+                        println!("{}", log_content);
+                    }
+                } else if !line.starts_with(":")
+                    && !line.starts_with("event:")
+                    && !line.starts_with("id:")
+                {
+                    // Print non-SSE control lines directly
+                    println!("{}", line);
+                }
+            }
+        }
+
+        // Flush stdout to ensure real-time output
+        io::stdout()
+            .flush()
+            .map_err(|e| FunctionError::IoError(e))?;
+    }
+
+    println!("\n📴 Log stream ended");
+    Ok(())
 }

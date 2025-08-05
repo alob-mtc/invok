@@ -1,7 +1,10 @@
 use axum::body::Body;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, Request, StatusCode};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
+use futures_util::stream::StreamExt;
+use runtime::core::logs::LogMessage;
 
 use crate::api_controller::middlewares::jwt::AuthenticatedUser;
 use crate::api_controller::AppState;
@@ -9,10 +12,11 @@ use crate::db::function::FunctionDBRepo;
 use crate::db::models::DeployableFunction;
 use crate::lifecycle_manager::deploy::deploy_function;
 use crate::lifecycle_manager::invoke::{check_function_status, start_function};
-use crate::utils::utils::make_request;
-use futures_util::stream::StreamExt;
+use crate::utils::utils::{generate_hash, make_request};
 use std::collections::HashMap;
+use std::convert::Infallible;
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 /// Handles uploading a function as a ZIP file with authentication.
 ///
@@ -321,4 +325,127 @@ fn validate_function_call_inputs(
     }
 
     Ok(())
+}
+
+/// Stream logs from a deployed function in real-time
+///
+/// This endpoint:
+/// - Validates the namespace (user UUID) format and function name  
+/// - Checks if the function exists in the user's namespace
+/// - Uses the runtime module to stream container logs
+/// - Returns logs via Server-Sent Events
+///
+/// # Parameters
+///
+/// * `namespace` - The user's UUID serving as a namespace for their functions
+/// * `function_name` - The name of the function to get logs from
+///
+/// # Returns
+///
+/// A Server-Sent Events stream of container logs
+pub(crate) async fn stream_function_logs(
+    mut state: State<AppState>,
+    Path((namespace, function_name)): Path<(String, String)>,
+    AuthenticatedUser(user_uuid): AuthenticatedUser,
+) -> impl IntoResponse {
+    // Validate input parameters
+    if let Err(response) = validate_function_call_inputs(&namespace, &function_name) {
+        return response;
+    }
+
+    // Validate namespace matches authenticated user
+    let namespace_uuid: Uuid = match namespace.parse() {
+        Ok(uuid) => uuid,
+        Err(e) => {
+            error!(
+                namespace = %namespace,
+                function = %function_name,
+                error = %e,
+                "Invalid function namespace format"
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("Invalid function namespace format: {}", e),
+            )
+                .into_response();
+        }
+    };
+
+    if namespace_uuid != user_uuid {
+        error!(
+            namespace = %namespace,
+            function = %function_name,
+            user_uuid = %user_uuid,
+            "Namespace doesn't match authenticated user"
+        );
+        return (
+            StatusCode::FORBIDDEN,
+            "You can only access logs for your own functions".to_string(),
+        )
+            .into_response();
+    }
+
+    // Check function existence
+    if let Err(e) = check_function_status(&mut state, &function_name, user_uuid).await {
+        error!(
+            namespace = %namespace,
+            function = %function_name,
+            user_uuid = %user_uuid,
+            error = %e,
+            "Function status check failed"
+        );
+        return e.into_response();
+    }
+
+    info!(
+        namespace = %namespace,
+        function = %function_name,
+        user_uuid = %user_uuid,
+        "Starting log stream for function"
+    );
+
+    // Generate function key and get log stream from runtime
+    let uuid_short = generate_hash(user_uuid);
+    let function_key = format!("{function_name}-{uuid_short}");
+
+    let log_stream = match state.autoscaler.get_function_logs(&function_key).await {
+        Some(stream) => stream,
+        None => {
+            warn!(
+                namespace = %namespace,
+                function = %function_name,
+                user_uuid = %user_uuid,
+                function_key = %function_key,
+                "No running container found for function"
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                "No running container found for this function. Try invoking the function first."
+                    .to_string(),
+            )
+                .into_response();
+        }
+    };
+
+    info!(
+        namespace = %namespace,
+        function = %function_name,
+        user_uuid = %user_uuid,
+        "Log stream established successfully"
+    );
+
+    // Convert LogMessage stream to Server-Sent Events
+    let sse_stream = log_stream.map(|log_msg| {
+        let event_data = match log_msg {
+            LogMessage::Content(content) => content,
+            LogMessage::Error(error) => format!("ERROR: {}", error),
+            LogMessage::End => "Log stream ended".to_string(),
+        };
+
+        Ok::<Event, Infallible>(Event::default().data(event_data))
+    });
+
+    Sse::new(sse_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }

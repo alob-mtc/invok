@@ -11,7 +11,7 @@ use config::{InvokConfig, InvokConfigError};
 use db_migrations::{Migrator, MigratorTrait};
 use handlers::{
     auth::{login, register},
-    functions::{call_function, list_functions, upload_function},
+    functions::{call_function, list_functions, stream_function_logs, upload_function},
 };
 use redis::aio::MultiplexedConnection;
 use runtime::core::autoscaler::Autoscaler;
@@ -141,6 +141,11 @@ pub async fn start_server() -> Result<(), InvokAppError> {
         // Function management routes
         .route("/invok/list", get(list_functions))
         .route("/invok/deploy", post(upload_function))
+        // Function logs route
+        .route(
+            "/invok/logs/:namespace/:function_name",
+            get(stream_function_logs),
+        )
         // Function invocation routes
         .route("/invok/:namespace/:function_name", any(call_function))
         .with_state(app_state);
