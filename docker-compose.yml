@@ -32,7 +32,7 @@ services:
       RUST_LOG: "debug"
       DOCKER_HOST: "socat:2375"
       # It is important to set this correctly, you can find the correct value by running `docker network ls` and it should be <>_infra_network
-      DOCKER_COMPOSE_NETWORK: "serverless_infra_network"
+      DOCKER_COMPOSE_NETWORK: "serverless-framework_infra_network"
       MIN_CONTAINERS_PER_FUNCTION: "0"
       MAX_CONTAINERS_PER_FUNCTION: "5"
       MEMORY_OVERLOAD_THRESHOLD: "100.0"

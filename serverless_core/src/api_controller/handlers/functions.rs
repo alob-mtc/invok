@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, Request, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use futures_util::stream::StreamExt;
@@ -445,7 +445,14 @@ pub(crate) async fn stream_function_logs(
         Ok::<Event, Infallible>(Event::default().data(event_data))
     });
 
-    Sse::new(sse_stream)
+    let mut response = Sse::new(sse_stream)
         .keep_alive(KeepAlive::default())
-        .into_response()
+        .into_response();
+
+    // Add headers to prevent NGINX buffering
+    let headers = response.headers_mut();
+    headers.insert("X-Accel-Buffering", HeaderValue::from_static("no"));
+    headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
+
+    response
 }
