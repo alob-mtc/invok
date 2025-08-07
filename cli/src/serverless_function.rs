@@ -358,8 +358,8 @@ async fn stream_logs_async(url: &str, headers: HeaderMap) -> Result<(), Function
         for line in text.lines() {
             if !line.trim().is_empty() {
                 // Parse Server-Sent Events format if needed
-                if line.starts_with("data: ") {
-                    let log_content = &line[6..]; // Remove "data: " prefix
+                if line.starts_with("data:") {
+                    let log_content = &line[5..]; // Remove "data:" prefix
                     if !log_content.trim().is_empty() {
                         println!("{}", log_content);
                     }
