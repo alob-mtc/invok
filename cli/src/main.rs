@@ -12,7 +12,7 @@ use std::process;
 
 fn main() {
     let matches = Command::new("CLI")
-        .version("1.0")
+        .version("0.0.2")
         .author("Akinlua Bolamigbe <bolamigbeakinlua@gmail.com>")
         .about("Serverless Function Platform CLI - Create and deploy functions to the cloud")
         .subcommand(
