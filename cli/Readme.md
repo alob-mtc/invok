@@ -4,6 +4,21 @@ This CLI tool provides functionality to create and deploy serverless functions.
 
 ## Installation
 
+### Option 0: Prebuilt binaries (GitHub Releases)
+
+Download the latest `invok` binary for your OS/architecture from the [GitHub Releases](https://github.com/alob-mtc/invok/releases) page.
+
+After downloading, make it executable and move it into your PATH:
+
+- Linux: 
+```sh
+chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
+```
+- macOS:
+```sh
+xattr -dr com.apple.quarantine ./invok && chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
+```
+
 ### Option 1: Docker (Recommended)
 
 The easiest way to use `invok` is via Docker:

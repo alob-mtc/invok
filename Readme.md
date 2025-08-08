@@ -68,7 +68,18 @@ cargo run -p serverless_core
 ```
 
 ### Installing the CLI
+Download the latest binary for your OS/CPU from the [GitHub Releases](https://github.com/alob-mtc/invok/releases) page and extract it.
 
+#### Linux install
+```shell
+chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
+```
+#### MacOS install
+```shell
+xattr -dr com.apple.quarantine ./invok && chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
+```
+
+From Source:
 ```sh
 # Build the CLI
 cd cli
