@@ -19,7 +19,25 @@ chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
 xattr -dr com.apple.quarantine ./invok && chmod +x ./invok && sudo mv ./invok /usr/local/bin/invok
 ```
 
-### Option 1: Docker (Recommended)
+### Option 0.5: Curl installer (pinned v0.0.1)
+
+- Linux (x86_64):
+```sh
+curl -fsSL https://github.com/alob-mtc/invok/releases/download/v0.0.1/invok-v0.0.1-x86_64-unknown-linux-gnu.tar.gz -o invok.tar.gz \
+  && tar -xzf invok.tar.gz \
+  && sudo mv invok /usr/local/bin/invok
+```
+
+- macOS (Apple Silicon, arm64):
+```sh
+curl -fsSL https://github.com/alob-mtc/invok/releases/download/v0.0.1/invok-v0.0.1-aarch64-apple-darwin.tar.gz -o invok.tar.gz \
+  && tar -xzf invok.tar.gz \
+  && xattr -dr com.apple.quarantine invok || true \
+  && chmod +x invok \
+  && sudo mv invok /usr/local/bin/invok
+```
+
+### Option 1: Docker
 
 The easiest way to use `invok` is via Docker:
 
