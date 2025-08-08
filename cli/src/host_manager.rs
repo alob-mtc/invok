@@ -31,3 +31,7 @@ pub fn function_upload_url() -> String {
 pub fn function_list_url() -> String {
     format!("{}/invok/list", HOST_BASE)
 }
+/// Generates the URL for the function logs endpoint
+pub fn function_logs_url(namespace: &str, function_name: &str) -> String {
+    format!("{}/invok/logs/{}/{}", HOST_BASE, namespace, function_name)
+}

@@ -4,7 +4,9 @@ mod serverless_function;
 mod utils;
 
 use crate::auth::{login, logout, register};
-use crate::serverless_function::{create_new_project, deploy_function, list_functions};
+use crate::serverless_function::{
+    create_new_project, deploy_function, list_functions, stream_logs,
+};
 use clap::{Arg, Command};
 use std::process;
 
@@ -45,6 +47,18 @@ fn main() {
                 ),
         )
         .subcommand(Command::new("list").about("Lists all functions"))
+        .subcommand(
+            Command::new("logs")
+                .about("Stream logs from a function")
+                .arg(
+                    Arg::new("name")
+                        .short('n')
+                        .long("name")
+                        .value_name("NAME")
+                        .required(true)
+                        .help("The name of the function to get logs from"),
+                ),
+        )
         .subcommand(
             Command::new("login")
                 .about("Login to the serverless platform")
@@ -118,6 +132,22 @@ fn main() {
         Some(("list", _)) => {
             if let Err(err) = list_functions() {
                 eprintln!("Error getting function: {}", err);
+                process::exit(1);
+            }
+        }
+        Some(("logs", sub_matches)) => {
+            if let Some(name) = sub_matches.get_one::<String>("name") {
+                match stream_logs(name) {
+                    Ok(_) => {
+                        println!("Log streaming ended");
+                    }
+                    Err(err) => {
+                        eprintln!("❌ Error streaming logs: {}", err);
+                        process::exit(1);
+                    }
+                }
+            } else {
+                eprintln!("Name parameter is required");
                 process::exit(1);
             }
         }

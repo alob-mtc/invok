@@ -1,10 +1,12 @@
 use crate::core::container_manager::{ContainerPool, MonitoringConfig};
+use crate::core::logs::{ContainerLogStreamer, LogMessage};
 use crate::core::metrics_client::MetricsClient;
 use crate::core::persistence::{AutoscalerPersistence, PersistenceConfig, PersistenceMetadata};
 use crate::core::runner::ContainerDetails;
 use crate::shared::error::AppResult;
 use bollard::Docker;
 use dashmap::DashMap;
+use futures_util::stream::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -372,6 +374,49 @@ impl Autoscaler {
         );
 
         Ok(container_details)
+    }
+
+    /// Get a log stream for a function's container
+    ///
+    /// # Arguments
+    ///
+    /// * `function_key` - The function key to get logs for
+    ///
+    /// # Returns
+    ///
+    /// A stream of log messages from the container, or None if no container is found
+    pub async fn get_function_logs(
+        &self,
+        function_key: &str,
+    ) -> Option<impl Stream<Item = LogMessage>> {
+        // Find a running container for this function
+        let container_details = self.get_container_for_invocation(function_key).await?;
+
+        info!(
+            function_key = %function_key,
+            container_id = %container_details.container_id,
+            "Getting log stream for function"
+        );
+
+        // Create log streamer
+        let log_streamer = ContainerLogStreamer::with_docker(self.docker.clone());
+
+        // Get streaming logs
+        match log_streamer
+            .stream_logs(&container_details.container_id, true)
+            .await
+        {
+            Ok(stream) => Some(stream),
+            Err(e) => {
+                error!(
+                    function_key = %function_key,
+                    container_id = %container_details.container_id,
+                    error = %e,
+                    "Failed to create log stream for function"
+                );
+                None
+            }
+        }
     }
 }
 

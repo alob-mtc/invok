@@ -12,9 +12,12 @@ path="src/main.rs"
 clap = { version = "4.5.1"}
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
-reqwest = { version = "0.11.25", features = ["blocking", "json", "multipart"] }
+reqwest = { version = "0.11.25", features = ["blocking", "json", "multipart", "stream"] }
 shared_utils = { path = "../shared_utils" }
 templates= {path = "../templates"}
 thiserror = "1.0"
 dirs = "5.0.1"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1"
+futures-util = "0.3"
 
