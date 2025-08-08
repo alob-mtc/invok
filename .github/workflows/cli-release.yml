@@ -1,0 +1,118 @@
+name: CLI Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+            bin_name: invok
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+            bin_name: invok
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive: tar.gz
+            bin_name: invok
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+            bin_name: invok.exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' }}
+
+      - name: Install system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Build CLI (release)
+        run: |
+          cargo build -p cli --release --locked
+
+      - name: Prepare dist directory
+        shell: bash
+        run: |
+          mkdir -p dist
+          VERSION="${GITHUB_REF_NAME}"
+          # Fallback if not a tag
+          if [ -z "$VERSION" ]; then VERSION="latest"; fi
+          ASSET_BASENAME="invok-${VERSION}-${{ matrix.target }}"
+          BIN_PATH="target/release/${{ matrix.bin_name }}"
+          if [ ! -f "$BIN_PATH" ]; then
+            echo "Binary not found at $BIN_PATH" >&2
+            exit 1
+          fi
+          cp "$BIN_PATH" "dist/"
+          cd dist
+          if [ "${{ matrix.archive }}" = "tar.gz" ]; then
+            tar -czf "${ASSET_BASENAME}.tar.gz" "${{ matrix.bin_name }}"
+            shasum -a 256 "${ASSET_BASENAME}.tar.gz" | awk '{print $1}' > "${ASSET_BASENAME}.tar.gz.sha256"
+            rm -f "${{ matrix.bin_name }}"
+          else
+            # windows zip + checksum (powershell available but use 7z when present)
+            powershell -Command "Compress-Archive -Path '${{ matrix.bin_name }}' -DestinationPath '${ASSET_BASENAME}.zip'"
+            powershell -Command "(Get-FileHash '${ASSET_BASENAME}.zip' -Algorithm SHA256).Hash | Out-File -NoNewline '${ASSET_BASENAME}.zip.sha256'"
+            rm -f "${{ matrix.bin_name }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: invok-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lah dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.tar.gz.sha256
+            dist/*.zip
+            dist/*.zip.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
