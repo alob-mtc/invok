@@ -121,7 +121,7 @@ fn create_url(addr: &str, key: &str, query: HashMap<String, String>) -> String {
 /// This function builds an HTTP request to the given service address and key,
 /// forwarding the method, headers, and body of the original request.
 ///
-/// It supports GET and POST methods. For other methods, a `METHOD_NOT_ALLOWED`
+/// It supports GET, POST, PUT, PATCH, HEAD and DELETE methods. For other methods, a `METHOD_NOT_ALLOWED`
 /// response is returned.
 ///
 /// # Arguments
@@ -148,7 +148,8 @@ pub async fn make_request(
         .expect("Failed to build HTTP client");
 
     // Choose the appropriate client method based on the request method.
-    let response_result = match *req.method() {
+    let method = req.method().clone();
+    let response_result = match method {
         http::Method::GET => {
             client
                 .get(create_url(addr, key, query))
@@ -156,7 +157,7 @@ pub async fn make_request(
                 .send()
                 .await
         }
-        http::Method::POST => {
+        _ => {
             let body_bytes = match to_bytes(req.into_body()).await {
                 Ok(bytes) => bytes,
                 Err(err) => {
@@ -168,21 +169,28 @@ pub async fn make_request(
                 }
             };
 
-            client
-                .post(create_url(addr, key, query))
+            let request_builder = match method {
+                http::Method::POST => client.post(create_url(addr, key, query)),
+                http::Method::PUT => client.put(create_url(addr, key, query)),
+                http::Method::PATCH => client.patch(create_url(addr, key, query)),
+                http::Method::DELETE => client.delete(create_url(addr, key, query)),
+                http::Method::HEAD => client.head(create_url(addr, key, query)),
+                _ => {
+                    return AxumResponse::builder()
+                        .status(StatusCode::METHOD_NOT_ALLOWED)
+                        .body(format!(
+                            "We don't currently support {} functions",
+                            method
+                        ))
+                        .unwrap();
+                },
+            };
+
+            request_builder
                 .headers(convert_axum_headers_to_req_header(headers))
                 .body(body_bytes)
                 .send()
-                .await
-        }
-        _ => {
-            return AxumResponse::builder()
-                .status(StatusCode::METHOD_NOT_ALLOWED)
-                .body(format!(
-                    "We don't currently support {} functions",
-                    req.method()
-                ))
-                .unwrap();
+                .await            
         }
     };
 
