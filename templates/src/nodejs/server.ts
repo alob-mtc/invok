@@ -77,12 +77,17 @@ const gracefulShutdown = async (): Promise<void> => {
     server.log.info('Server closed successfully');
     process.exit(0);
   } catch (err) {
+    // @ts-ignore
     server.log.error('Error during shutdown:', err);
     process.exit(1);
   }
 };
 
 const registerRoutes = (fastify: FastifyInstance) => {
+  (routes.hooks || []).forEach(middleware => {
+    fastify.addHook('onRequest', middleware)
+  })
+
   fastify.all(`/${routes.name}`, routes.function);
 }
 
@@ -92,11 +97,13 @@ process.on('SIGINT', gracefulShutdown);
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
+  // @ts-ignore
   server.log.error('Uncaught Exception:', err);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  // @ts-ignore
   server.log.error('Unhandled Rejection at:', promise, 'reason:', reason);
   process.exit(1);
 });
