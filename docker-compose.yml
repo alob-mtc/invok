@@ -13,6 +13,7 @@ services:
 
   invok_core:
     container_name: invok-core
+    restart: unless-stopped
     build:
       context: .
       cache_from: []
@@ -61,6 +62,7 @@ services:
   redis:
     image: redis:7
     container_name: redis
+    restart: unless-stopped
     ports:
       - "6379:6379"
     networks:
@@ -69,6 +71,7 @@ services:
   # Monitoring Stack
   prometheus:
     image: prom/prometheus:latest
+    restart: unless-stopped
     container_name: prometheus
     ports:
       - "9090:9090"
@@ -87,6 +90,7 @@ services:
 
   grafana:
     image: grafana/grafana:latest
+    restart: unless-stopped
     container_name: grafana
     ports:
       - "3001:3000"
